@@ -74,6 +74,12 @@ The manager only makes a trade that clears your minimum improvement and the stra
 You can also set the longest contract the manager may give and how much cap space to always keep free. Signings, re-signings and trades that break these rules are skipped or flagged.
 
 **Autopilot.** Like BBGM's Auto Play, but your team keeps being managed by the rules above instead of the game's AI. It plays a day (or a week) at a time through the regular season, playoffs, draft, re-signing, free agency and preseason. Before every step it runs the manager and the Auto Drafter. It stops after the number of seasons you choose (a 1–100 dropdown in the Manager tab), at an optional checkpoint, when you press Stop, or if BBGM needs your attention.
+- **Fully automatic (v2.4.1, default):** Autopilot no longer waits for you.
+  - It also makes moves involving *Ask first* players or picks, and moves that break your contract rules. Switch "Moves that need your OK" to "Pause for me" to get the old behavior. *Never trade* is still respected: those players are never traded, cut or let go by Autopilot.
+  - Every expiring contract is decided before free agency, so BBGM's "players remain unsigned" prompt doesn't appear. If it does (for example, a Never-trade player who refuses to re-sign), Autopilot answers it and logs it.
+  - It votes on league expansion (yes) and team relocation (no); the league still decides by vote.
+  - Before an expansion draft it protects your players: Never trade first, then Ask first, then the most valuable for your strategy, up to the league's limit. Then it runs the expansion draft, and fantasy drafts too.
+  - Any other BBGM dialog is left for you, and the Manager tab says so.
 - **Safeguards:** before each move it checks that BBGM is idle and still at the game state the plan was made for, so a stale plan is never acted on. The same move is never repeated at the same game state, even after a re-render or retry. Stop takes effect between moves, never in the middle of one. It stops itself if the game doesn't advance or the manager keeps going in circles.
 - **Run summary:** when a run ends, the Manager tab shows championships, playoff appearances, regular-season win %, salary spent per win (with the league average for context), trades and other moves, draft picks, strategy changes, roster turnover, and a season-by-season table. These are observed results from BBGM's records. The summary doesn't claim Autopilot caused them; there's no comparison against what would have happened otherwise.
 

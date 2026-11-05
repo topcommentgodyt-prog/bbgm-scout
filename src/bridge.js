@@ -67,7 +67,12 @@
         }
       } catch (e) {}
       try { sched = (await bbgm.idb.cache.schedule.getAll()).length; } catch (e) {}
-      out = { inLeague: true, userTid, season, phase, gp, onClock, userHasPick, round, prog, sched, daysLeft: opt("daysLeft"),
+      let negs = 0;
+      try { negs = (await bbgm.idb.cache.negotiations.getAll()).filter((n) => n.tid === userTid).length; } catch (e) {}
+      const ed = opt("expansionDraft") || {};
+      out = { inLeague: true, userTid, season, phase, gp, onClock, userHasPick, round, prog, sched, daysLeft: opt("daysLeft"), negs,
+        exp: ed.phase || null, autoExpand: !!opt("autoExpand"), autoRelocate: !!opt("autoRelocate"), relocRealign: opt("autoRelocateRealign") !== false,
+        relocRebrand: opt("autoRelocateRebrand") !== false, gameOver: !!opt("gameOver"),
         gameSim: !!bbgm.lock.get("gameSim"), drafting: !!bbgm.lock.get("drafting"),
         godMode: !!opt("godMode"), multiTeam: (opt("userTids") || [userTid]).length > 1, spectator: !!opt("spectator") };
     } catch (e) { out.error = String(e.message || e); }
@@ -112,7 +117,9 @@
       if (p.tid === bbgm.PLAYER.FREE_AGENT || negPids.has(p.pid)) fas.push([p, row]);
     }
     fas.sort((a, b) => (b[0].valueFuzz ?? b[0].value) - (a[0].valueFuzz ?? a[0].value));
-    for (const [p, row] of fas.slice(0, 80)) {
+    // Contract demands for the top 80 free agents, and always for everyone you're negotiating with
+    // (otherwise a low-value expiring player is never decided and BBGM asks before free agency).
+    for (const [p, row] of fas.filter(([q], i) => i < 80 || negPids.has(q.pid))) {
       try { const m = await bbgm.player.moodInfo(p, userTid); row.mood = { willing: !!m.willing, contractAmount: m.contractAmount }; } catch (e) {}
     }
     const draftPicks = (await idb.cache.draftPicks.getAll()).map((d) => ({ dpid: d.dpid, tid: d.tid, originalTid: d.originalTid, season: d.season, round: d.round, pick: d.pick }));
@@ -133,6 +140,12 @@
     evalJSON,
     poll: () => evalJSON(POLL, 15000),
     snapshot: () => evalJSON(SNAPSHOT, 120000),
+    /** Expansion draft protection info for the user's team (read-only). */
+    expansionInfo: () => evalJSON(`
+      const g = bbgm.g, tid = g.get("userTid"), ed = g.get("expansionDraft") || {};
+      const ps = await bbgm.idb.cache.players.indexGetAll("playersByTid", tid);
+      console.log(JSON.stringify({ tid, phase: ed.phase || null, num: Number(ed.numProtectedPlayers) || 0,
+        protectedPids: (ed.protectedPids && ed.protectedPids[tid]) || [], expansionTids: ed.expansionTids || [], pids: ps.map((p) => p.pid) }));`, 15000),
     readTrade: () => evalJSON(`const tr = await bbgm.idb.cache.trade.get(0); console.log(JSON.stringify({ teams: tr ? tr.teams : null }));`, 15000),
     /** Every active team's season records from `from` to `to` (read-only), for the Autopilot summary. */
     history: (from, to) => evalJSON(`

@@ -80,3 +80,25 @@ test("runActions: idempotent per game state, and stops cleanly", async () => {
   assert.strictEqual(runs, 1);
   assert.strictEqual(stale[0].error, "the game moved on");
 });
+
+test("re-signing: a player whose contract demands weren't read is still decided (nothing blocks free agency)", async () => {
+  const { bridge } = createLeague({ seed: 5 });
+  await advanceTo(bridge, 7);
+  const ctx = load(bridge);
+  const settings = await ctx.BBGMScoutStorage.getSettings();
+  const snap = await bridge.snapshot();
+  assert.ok(snap.negotiations.length > 0, "has negotiations");
+  const pid = snap.negotiations[0];
+  delete snap.players.find((p) => p.pid === pid).mood; // as when BBGM's demands weren't read for him
+  const L = await ctx.BBGMScoutLeague.build(snap, settings, null, {});
+  const acts = await ctx.BBGMScoutFeatures.managerPlan(L, { ...settings, manage: { ...settings.manage, resign: true } }, { lid: 1, includeTrades: false });
+  const decided = new Set(acts.filter((a) => a.kind === "resign" || a.kind === "letwalk").flatMap((a) => a.pids));
+  for (const n of snap.negotiations) assert.ok(decided.has(n), `negotiation ${n} decided`);
+});
+
+test("autopilot phases: fantasy and expansion drafts have a play action", () => {
+  const { bridge } = createLeague({ seed: 1 });
+  const ctx = load(bridge);
+  const F = ctx.BBGMScoutFeatures;
+  for (const phase of [-2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8]) assert.ok(F.nextPlayAction({ phase, round: 0 }, { apStep: "day" })[0], `phase ${phase}`);
+});

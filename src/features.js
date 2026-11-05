@@ -87,7 +87,8 @@
   }
 
   // ======================= Trade Helper =======================
-  const tradesAllowed = (L) => !(L.snap.phase >= PH.AFTER_TRADE_DEADLINE && L.snap.phase <= PH.PLAYOFFS);
+  // No trades after the deadline, during the playoffs, or during fantasy/expansion drafts (negative phases).
+  const tradesAllowed = (L) => L.snap.phase >= 0 && !(L.snap.phase >= PH.AFTER_TRADE_DEADLINE && L.snap.phase <= PH.PLAYOFFS);
 
   async function tradeIdeas(L, { shop = 3, onProgress } = {}) {
     if (!tradesAllowed(L)) return { ideas: [], note: "Trades aren't allowed right now (after the deadline or during the playoffs)." };
@@ -453,7 +454,7 @@
     const push = (kind, text, run, pids = [], opts = {}) => {
       const sig = opts.sig || `${kind}:${pids.join(",")}:${text.slice(0, 40)}`;
       if (mem.fails[sig] && mem.fails[sig].n >= 3 && clock - mem.fails[sig].t < 60) return; // failed repeatedly: stop retrying for a while
-      acts.push({ kind, text, run, pids, sig, approval: !!opts.approval, why: opts.why || "", ex: opts.ex || null });
+      acts.push({ kind, text, run, pids, sig, approval: !!opts.approval, never: !!opts.never, why: opts.why || "", ex: opts.ex || null });
     };
     const ex = (why, benefits = [], costs = []) => ({ why, benefits, costs, strategy: st.label, basis: "projected" });
     const lvl = (pid) => PR().playerLevel(pid);
@@ -488,12 +489,20 @@
       const hard = L.capInfo.type === "hard" && L.capInfo.cap;
       const valueOf = (v) => v.talent - L.costOf(v.p.mood.contractAmount, v.p.contract.exp);
       const order = [...L.snap.negotiations].map((pid) => L.byPid.get(pid)).filter((v) => v && v.p.mood).sort((a, b) => valueOf(b) - valueOf(a));
+      // Anyone whose demands couldn't be read still gets a decision, so BBGM never has to ask before free agency.
+      for (const pid of L.snap.negotiations) {
+        const v = L.byPid.get(pid);
+        if (v && v.p.mood) continue;
+        push("letwalk", `Let ${LG.name(L, pid)} walk (contract demands unavailable)`, () => B.call("main", "cancelContractNegotiation", pid), [pid],
+          { approval: lvl(pid) !== "available", never: lvl(pid) === "never", why: lvl(pid) === "never" ? "Never trade: you decide" : lvl(pid) === "ask" ? "Ask first" : "", sig: `letwalk:${pid}`,
+            ex: ex("BBGM didn't report his contract demands, so he can't be valued; undecided players would block free agency.") });
+      }
       let hardPay = L.capInfo.payroll;
       const walk = (v, why) => {
         const pid = v.p.pid, level = lvl(pid), ask = v.p.mood.contractAmount;
         if (level === "available") hardPay -= v.p.contract.amount; // only moves that run without approval free room for sure
         push("letwalk", `Let ${LG.name(L, pid)} walk (${why})`, () => B.call("main", "cancelContractNegotiation", pid), [pid],
-          { approval: level !== "available", why: level === "never" ? "Never trade: you decide" : level === "ask" ? "Ask first" : "", sig: `letwalk:${pid}`,
+          { approval: level !== "available", never: level === "never", why: level === "never" ? "Never trade: you decide" : level === "ask" ? "Ask first" : "", sig: `letwalk:${pid}`,
             ex: ex(!v.p.mood.willing ? "He won't re-sign." : why.includes("hard cap") ? "No room under the hard cap after higher-value re-signings." : "Asking price is above his value to you.",
               [], v.p.mood.willing ? [`value ${sgn(valueOf(v), 0)} at ${fmtMoney(ask)}`] : []) });
       };
@@ -658,6 +667,8 @@
       case PH.AFTER_DRAFT: return ["untilResignPlayers", "Go to re-signing"];
       case PH.RESIGN_PLAYERS: return ["untilFreeAgency", "Go to free agency"];
       case PH.FREE_AGENCY: return ["untilPreseason", "Finish free agency (players develop in the new preseason)"];
+      case -1: return ["untilEnd", "Finish the fantasy draft"]; // FANTASY_DRAFT
+      case -2: return ["untilEnd", "Finish the expansion draft"]; // EXPANSION_DRAFT (after protection is done)
       default: return [null, "Unknown phase"];
     }
   }

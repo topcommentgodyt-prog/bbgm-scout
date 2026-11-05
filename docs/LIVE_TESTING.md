@@ -67,6 +67,8 @@ Use BBGM's Play menu yourself for these, with the manager in automatic mode:
 - [ ] Afterward, the roster is legal (BBGM lets you play a game) and the log lists every move.
 - [ ] After the run, **Last Autopilot run** appears in the Manager tab with titles, playoff appearances, win %, salary per win, trades and moves; **Season by season** expands to a table.
 - [ ] Press Stop while Autopilot is managing the team (not simming): it finishes the current move, then stops. No move appears twice in the log.
+- [ ] With "Moves that need your OK" on **Autopilot makes them** (default), Autopilot goes from re-signing through free agency to the next preseason without any click, even with many free agents in the pool.
+- [ ] Expansion (optional, in a copy): in God Mode set the league's expansion probability to 100%. After the playoffs, Autopilot votes, protects players (Never trade first) and runs the expansion draft without stopping.
 - [ ] Run Autopilot for 2+ seasons with Strategy on **Auto**: if the strategy changes, the log has a "Strategy (Auto): X → Y" entry with reasons, at most once per checkpoint.
 
 ## G. What to send back if something fails

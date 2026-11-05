@@ -236,6 +236,14 @@ Choose a mode: **Suggest** (a list of proposed moves, each with Do it / Skip, pl
 ## 11. Manager tab: Autopilot
 
 - **Seasons to play:** a dropdown in the Manager dashboard (1–100 seasons; also in the popup).
+- **Fully automatic (v2.4.1, default on):**
+  - "Moves that need your OK" (Advanced settings, and the popup) defaults to "Autopilot makes them". Moves involving Ask-first assets or breaking contract rules are made automatically; moves that would trade, cut or let go a Never-trade player still wait for you. Set it to "Pause for me" for the previous behavior.
+  - **Re-signing:** contract demands are read for every player you're negotiating with, not just the top 80 free agents. Any player whose demands still can't be read is let go, so every negotiation is decided before free agency. Before v2.4.1, a low-value expiring player could be skipped, and BBGM's "N of your players remain unsigned" confirmation waited for a click. If that prompt still appears (for example, a Never-trade player who won't re-sign), Autopilot clicks Proceed and logs it.
+  - **League events,** handled the way BBGM's own Auto Play does:
+    - expansion vote (votes yes) and relocation vote (votes no)
+    - expansion-draft protection: Never trade, then Ask first, then highest value for the strategy, up to the league's limit; then it starts the expansion draft
+    - expansion and fantasy drafts are simmed to the end
+  - No trades during fantasy or expansion drafts. If BBGM reports that you were fired, Autopilot stops and says so. Any other BBGM dialog is reported in the Manager tab.
 - While it runs, Autopilot makes every manager move itself; the Manager list only shows moves that need your OK (Ask-first assets or contract-rule breaks).
 - Like BBGM's built-in Auto Play, but your team keeps being run by the manager rules above (with re-signing, cuts and signings forced on so the game never stops to ask you), instead of BBGM's AI.
 - Before every step it re-reads the league, runs the manager (finances, lineup, minutes, re-signings, cuts, signings, trades) and the Auto Drafter, then advances:

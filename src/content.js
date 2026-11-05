@@ -755,6 +755,7 @@
       <label>Manager mode<select data-set="managerMode"><option value="suggest"${settings.managerMode !== "auto" ? " selected" : ""}>Suggest (you approve)</option><option value="auto"${settings.managerMode === "auto" ? " selected" : ""}>Fully automatic</option></select></label>
       ${settings.features.autopilot ? `<label>Autopilot step<select data-set="apStep"><option value="day"${settings.apStep !== "week" ? " selected" : ""}>A day</option><option value="week"${settings.apStep === "week" ? " selected" : ""}>A week</option></select></label>
       <label>Stop at checkpoint<select data-set="apStopAt">${[["never", "Never"], ["playoffs", "Playoffs"], ["draft", "Draft"], ["freeAgency", "Free agency"]].map(([k, l]) => `<option value="${k}"${settings.apStopAt === k ? " selected" : ""}>${l}</option>`).join("")}</select></label>` : ""}
+      ${settings.features.autopilot ? `<label title="Fully automatic: Autopilot also makes moves involving Ask-first players or picks, and moves that break your contract rules. Never-trade players are still never traded, cut or let go.">Moves that need your OK<select data-set="apAutoApprove"><option value="true"${settings.apAutoApprove !== false && settings.apAutoApprove !== "false" ? " selected" : ""}>Autopilot makes them</option><option value="false"${settings.apAutoApprove === false || settings.apAutoApprove === "false" ? " selected" : ""}>Pause for me</option></select></label>` : ""}
       <label title="Minimum trade score in team-rating points (1 point ≈ 2.7 wins over 82 games)">Minimum trade improvement<input type="number" data-set="tradeMinMov" min="0.1" max="10" step="0.1" value="${settings.tradeMinMov ?? 0.5}"></label>
       <label title="Game days before a newly acquired player can be traded again. Trades scoring 3× the minimum are allowed anyway; players are never sent back to the team they came from during the cooldown.">Trade cooldown (game days)<input type="number" data-set="tradeCooldownDays" min="0" max="200" value="${settings.tradeCooldownDays ?? 30}"></label>
       <label title="Searching is slow; raise this if sims feel sluggish">Search for trades every N game days<input type="number" data-set="tradeEveryDays" min="1" max="82" value="${settings.tradeEveryDays || 1}"></label>
@@ -762,7 +763,7 @@
 
     if (settings.features.manager || settings.features.autopilot) {
       const refresh = on(() => { st.pending = null; invalidate(); render(); refreshPending(); });
-      html += `<div class="h">${st.ap.running ? "Waiting for your OK" : settings.managerMode === "auto" ? "Automatic management is on" : "Suggested moves"}</div>`;
+      html += `<div class="h">${st.ap.running ? (settings.apAutoApprove !== false && settings.apAutoApprove !== "false" ? "Waiting for your OK (Never trade players only)" : "Waiting for your OK") : settings.managerMode === "auto" ? "Automatic management is on" : "Suggested moves"}</div>`;
       if (st.ap.running) html += `<div class="why">Autopilot makes the other moves itself before every step and logs them below. Only moves that need your OK (Ask-first players or picks, or moves that break your contract rules) wait here.</div>`;
       else if (settings.managerMode === "auto") html += `<div class="why">Runs after every game day and phase change. Everything it does is logged below with its reasons.</div>`;
       if (!st.pending) html += needL() || `<div class="msg">Planning…</div>`;
@@ -976,8 +977,62 @@
       await sleep(800);
     }
   }
+  // BBGM asks "Are you sure you want to proceed to free agency while N of your players remain unsigned?"
+  // when re-signing isn't finished. While Autopilot runs fully automatically it answers that prompt, since it
+  // has already decided every player it can; any other BBGM dialog is left for you and reported.
+  function answerBBGMDialogs() {
+    const modal = document.querySelector(".modal.show");
+    if (!modal) return null;
+    const text = modal.innerText || "";
+    const auto = settings.apAutoApprove !== false && settings.apAutoApprove !== "false";
+    if (auto && /proceed to free agency/i.test(text)) {
+      const ok = [...modal.querySelectorAll("button")].find((b) => /^\s*Proceed\s*$/i.test(b.textContent));
+      if (ok) { ok.click(); S.addLog({ kind: "letwalk", text: "Answered BBGM's prompt: proceeded to free agency (players still unsigned became free agents)" }); return "answered"; }
+    }
+    return text.slice(0, 120);
+  }
+  /**
+   * Handles the steps BBGM would otherwise stop and ask you about (BBGM's own Auto Play handles them too):
+   *  - expansion vote: votes yes; relocation vote: votes no (the league still decides by its vote)
+   *  - expansion draft protection: protects Never-trade players first, then Ask-first, then the most valuable
+   *    for your strategy, up to the league's limit; then starts the expansion draft
+   * Returns true if it did something (the loop re-reads the game afterwards).
+   */
+  async function handleLeagueEvents(poll, L) {
+    if (poll.autoExpand) {
+      st.ap.status = "Voting on league expansion…"; render();
+      await B.call("main", "expandVote", { override: false, userVote: true });
+      await S.addLog({ kind: "league", text: "Voted yes on the proposed league expansion (the league decides by vote)" });
+      return true;
+    }
+    if (poll.autoRelocate) {
+      st.ap.status = "Voting on team relocation…"; render();
+      await B.call("main", "relocateVote", { override: false, realign: poll.relocRealign, rebrandTeam: poll.relocRebrand, userVote: false });
+      await S.addLog({ kind: "league", text: "Voted no on the proposed team relocation (the league decides by vote)" });
+      return true;
+    }
+    if (poll.phase === -2 && poll.exp === "protection") {
+      st.ap.status = "Protecting players for the expansion draft…"; render();
+      const info = await B.expansionInfo();
+      const rank = (pid) => { const lv = P.playerLevel(pid); const v = L.byPid.get(pid); return [lv === "never" ? 0 : lv === "ask" ? 1 : 2, -(v ? v.talent : 0)]; };
+      const order = [...info.pids].sort((a, b) => { const [ra, va] = rank(a), [rb, vb] = rank(b); return ra - rb || va - vb; });
+      const keep = info.num > 0 ? order.slice(0, info.num) : order;
+      await B.call("main", "updateProtectedPlayers", { tid: info.tid, protectedPids: keep });
+      await B.call("main", "startExpansionDraft");
+      await S.addLog({ kind: "league", text: `Expansion draft: protected ${keep.map((pid) => LG.name(L, pid)).join(", ")}`, pids: keep,
+        ex: { why: `Protected ${keep.length} of ${info.pids.length} players (league limit ${info.num || "none"}): Never-trade first, then Ask-first, then highest value for ${L.strategy.label}.`, benefits: [], costs: [], strategy: L.strategy.label, basis: "projected" } });
+      return true;
+    }
+    if (poll.gameOver) throw new Error("BBGM says you were fired (game over). Pick a new team or league in BBGM, then start Autopilot again");
+    return false;
+  }
   async function startAutopilot() {
     if (st.ap.running) return;
+    const dialogTimer = setInterval(() => {
+      if (!st.ap.running) return clearInterval(dialogTimer);
+      const r = answerBBGMDialogs();
+      if (r && r !== "answered" && !/Waiting for BBGM/.test(st.ap.status)) { st.ap.status = `Waiting for BBGM: it's showing a message that needs you ("${r.replace(/\s+/g, " ")}…")`; render(); }
+    }, 1000);
     st.ap = { running: true, status: "Starting…", startSeason: null, stopReq: false, runStart: Date.now(), strategies: {}, rosterStart: null };
     render();
     // Autopilot must make every decision the game would otherwise stop and ask you about.
@@ -1009,12 +1064,15 @@
         const s2 = apSettings();
         const td = await F.tradeDue(lidNow(), L, s2);
         const planned = await F.managerPlan(L, s2, { lid: lidNow(), includeTrades: s2.manage.trades && td.due && td });
-        const waiting = planned.filter((a) => a.approval);
-        const acts = planned.filter((a) => !a.approval);
+        // Fully automatic (default): moves that would wait for your OK are made too, except anything that
+        // would trade, cut or let go a Never-trade player.
+        const auto = settings.apAutoApprove !== false && settings.apAutoApprove !== "false";
+        const waiting = planned.filter((a) => a.approval && (!auto || a.never));
+        const acts = planned.filter((a) => !a.approval || (auto && !a.never));
         // Autopilot makes every other move itself, so the list only keeps what needs your OK.
         st.pending = waiting; st.pendingKey = pk;
         // Re-signing can't continue past undecided protected players, so hand control back.
-        if (poll.phase === 7 && waiting.some((a) => a.kind === "resign" || a.kind === "letwalk") && !acts.length) {
+        if (!auto && poll.phase === 7 && waiting.some((a) => a.kind === "resign" || a.kind === "letwalk") && !acts.length) {
           st.ap.status = `Paused: ${waiting.length} move${waiting.length === 1 ? "" : "s"} need your OK (protected players or contract rules). Approve or skip them below, then start Autopilot again.`;
           await S.addLog({ kind: "error", text: st.ap.status });
           break;
@@ -1036,8 +1094,14 @@
           await F.draftStep(await getL(true), { ...s2, draftTradeUp: s2.draftTradeUp }, { act: true });
           continue;
         }
+        // League events BBGM's own Auto Play also handles: votes and the expansion draft's protection step.
+        if (await handleLeagueEvents(poll, L)) continue;
         const [action, label] = F.nextPlayAction(poll, settings);
-        if (!action) throw new Error("Unknown game phase");
+        if (!action) throw new Error(`Unknown game phase (${poll.phase})`);
+        if (poll.phase === 7 && poll.negs > 0) {
+          // Players still unsigned (e.g. a Never-trade player who won't re-sign): BBGM will ask before free agency.
+          await S.addLog({ kind: "letwalk", text: `${poll.negs} player${poll.negs === 1 ? "" : "s"} still unsigned at the end of re-signing; they become free agents` });
+        }
         st.ap.status = `${label}…`; render();
         const before = progressKey(poll);
         st.ap.lastKey = before;

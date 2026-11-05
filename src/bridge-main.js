@@ -26,6 +26,11 @@
     "main.updatePlayingTime",
     "main.cancelContractNegotiation",
     "undoLog.undo",
+    // Expansion / relocation votes and the expansion draft, used only by Autopilot
+    "main.expandVote",
+    "main.relocateVote",
+    "main.updateProtectedPlayers",
+    "main.startExpansionDraft",
     // Play menu, used only by Autopilot when you turn it on
     "playMenu.stop",
     "playMenu.day",

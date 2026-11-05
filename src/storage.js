@@ -50,6 +50,7 @@
     tank: false,
     apStep: "day", // "day" | "week"
     apSeasons: 1,
+    apAutoApprove: true, // Autopilot also makes Ask-first / contract-rule moves itself (Never trade is still respected)
     apStopAt: "never", // "never" | "playoffs" | "draft" | "freeAgency"
     claudeEnabled: false,
     claudeModel: "claude-opus-5-5",

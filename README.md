@@ -1,4 +1,6 @@
-# BBGM Scout
+# Courtside
+
+*Formerly BBGM Scout.* The all-in-one GM toolkit for Basketball GM.
 
 A browser extension for Basketball GM: player development outlooks, a hidden-gem assistant, trade help, free-agent and draft tools, automatic team management, and an Autopilot that sims seasons while managing your team. Settings, pins and reports sync across devices.
 
@@ -37,7 +39,7 @@ The dock in the bottom corner of every BBGM league page has one tab per tool. Cl
 | **Needs** | **Injury stress test** (what your team rating and skill ranks lose if your best players, top rim protector or ball handler miss time, with affordable backups) plus the team needs scanner: your three biggest weaknesses compared with every team (outside shooting, inside scoring, ball handling & passing, perimeter defense, rim protection, rebounding, athleticism, bench depth, star power), each linked to the best trade target, free agent and draft prospect to fix it, with Ask / Sign buttons | On |
 | **Plan** | The next three seasons: projected team rating and league rank, committed payroll, cap space, expiring contracts and your picks, with warnings (stars declining before prospects are ready, a closing window, a cap crunch, no first-rounders). Also where you set **Never trade / Ask first / Available** for every player and pick | On |
 | **Moneyball** | Value per dollar, in BBGM's team rating: payroll efficiency for every team, your roster by value per dollar (overpaid / bargain), the best value-per-dollar players available, **market inefficiencies** (skills, ages and builds BBGM's AI under- or over-values), age arbitrage (buy before the peak, sell before the decline), and cheaper swaps that make you better | On |
-| **Realism** | Records league-wide numbers every season (stars per team, parity, payrolls vs. the cap, max contracts, long injuries, scoring, three-point rate) and suggests God Mode / league setting tweaks as the years go on. For example: a hard cap or higher luxury tax when dynasties form, inflation when the cap never changes, a different Three Point Tendency Factor when the style drifts from the modern NBA. Suggestions only; it never changes settings | On |
+| **Realism** | Records league-wide numbers every season (stars per team, parity, payrolls vs. the cap, max contracts, long injuries, scoring, three-point rate) and suggests God Mode / league setting tweaks as the years go on. For example: a hard cap or higher luxury tax when dynasties form, inflation when the cap never changes, a different Three Point Tendency Factor when the style drifts from the modern NBA. **Apply** or **Apply all suggestions** sets them for you through BBGM's own settings function, after a confirmation listing every change, with **Undo**. Most need God Mode, which applying offers to turn on | On |
 
 **Franchise strategy.** The Manager tab's Strategy menu has **Auto**, **Rebuild**, **Develop**, **Contend** and **Win Now**. Each has one multi-season objective: how much this season counts against the next two, how future value is discounted, and how much it penalizes giving up young players or picks, or taking on aging players.
 - **Auto** looks at your team rating now and projected in two seasons (league percentiles), your record once enough games are played, the age of your top five, your first-round picks, young players projected to start, and next season's cap room.
@@ -93,7 +95,7 @@ The Manager tab opens with a compact dashboard (Strategy, Seasons, approvals wai
 
 ## How the model works
 
-BBGM Scout doesn't use a guessed age curve. Each season it applies BBGM's own progression rules to the player's 15 individual ratings: the age-based base change, the random noise, each rating's age modifiers and change limits, and the coaching-budget effect. It then recomputes OVR with BBGM's formula, and runs about 1,000 simulated careers per player through age 36. Because it starts from the full ratings vector, two players with the same OVR but different builds get different forecasts. For example, a player whose OVR is mostly athleticism will age worse than one whose OVR is mostly IQ.
+Courtside doesn't use a guessed age curve. Each season it applies BBGM's own progression rules to the player's 15 individual ratings: the age-based base change, the random noise, each rating's age modifiers and change limits, and the coaching-budget effect. It then recomputes OVR with BBGM's formula, and runs about 1,000 simulated careers per player through age 36. Because it starts from the full ratings vector, two players with the same OVR but different builds get different forecasts. For example, a player whose OVR is mostly athleticism will age worse than one whose OVR is mostly IQ.
 
 **Scouting fog.** On by default. For players outside your team, the forecast starts from the fuzzed ratings BBGM shows you and averages over the uncertainty implied by your scouting budget. It never peeks at true ratings. You can turn this off in Settings.
 
@@ -103,9 +105,9 @@ This is an independent re-implementation of BBGM's published mechanics for perso
 
 ## Works with any league
 
-Open any Basketball GM league in the browser and BBGM Scout attaches to it automatically. It reads the league number from the page address and the game's live state every few seconds. That includes random leagues, real-player leagues, custom and uploaded leagues, and leagues mid-season or mid-sim. Settings, pins and reports are shared across leagues; protections, the Realism history and trade timing are kept per league.
+Open any Basketball GM league in the browser and Courtside attaches to it automatically. It reads the league number from the page address and the game's live state every few seconds. That includes random leagues, real-player leagues, custom and uploaded leagues, and leagues mid-season or mid-sim. Settings, pins and reports are shared across leagues; protections, the Realism history and trade timing are kept per league.
 
-**Synced data follows the right league on every device.** BBGM numbers leagues per browser, so "league 1" on one computer can be a different league on another. BBGM Scout gives each league a fingerprint built from facts that never change and travel with an exported league file: its starting season and its first players' names and birth years. Pins, reports and protections are stored under that fingerprint. Each device remembers which local league number matches it, and pins for a league you haven't opened on a device yet are shown without a link until you do. Things to know:
+**Synced data follows the right league on every device.** BBGM numbers leagues per browser, so "league 1" on one computer can be a different league on another. Courtside gives each league a fingerprint built from facts that never change and travel with an exported league file: its starting season and its first players' names and birth years. Pins, reports and protections are stored under that fingerprint. Each device remembers which local league number matches it, and pins for a league you haven't opened on a device yet are shown without a link until you do. Things to know:
 - Only leagues on play.basketball-gm.com (or beta.basketball-gm.com) in a browser where the extension is installed. It can't reach leagues on another device or in the mobile app.
 - Multi-team mode and spectator mode: the scouting tools work, but leave the Manager and Autopilot off (they assume you control one team).
 - Real-player leagues with "real player development" on are flagged as lower confidence, because real careers override BBGM's random progression.
@@ -162,4 +164,4 @@ Files: `src/engine.js` (simulation), `src/strategy.js` (Strategy Brain, trade sc
 
 ## License
 
-[MIT](LICENSE) © 2026 topcommentgodyt-prog. The license covers BBGM Scout's own code. Basketball GM is a separate product by ZenGM; BBGM Scout isn't affiliated with or endorsed by it.
+[MIT](LICENSE) © 2026 topcommentgodyt-prog. The license covers Courtside's own code. Basketball GM is a separate product by ZenGM; Courtside isn't affiliated with or endorsed by it.

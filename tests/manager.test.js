@@ -141,3 +141,15 @@ test("trades leave room for this round's re-signings and pending draft picks", a
     assert.ok(L.capInfo.rosterSize - out + inc + resigns <= L.capInfo.maxRoster, "room left for re-signings");
   }
 });
+
+test("realism: only known league settings with sane values can be applied", () => {
+  const { bridge } = createLeague({ seed: 1 });
+  const ctx = load(bridge);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "src", "realism.js"), "utf8"), ctx);
+  const R = ctx.BBGMScoutRealism;
+  const patch = R.settingsToApply([
+    { changes: [{ key: "luxuryTax", value: 2 }, { key: "salaryCapType", value: "hard" }, { key: "salaryCap", value: 160000 }] },
+    { changes: [{ key: "godMode", value: true }, { key: "pace", value: 9999 }, { key: "salaryCapType", value: "weird" }, { setting: ["Draft", "Draft classes"], suggest: "upload" }] },
+  ]);
+  assert.strictEqual(JSON.stringify(patch), JSON.stringify({ luxuryTax: 2, salaryCapType: "hard", salaryCap: 160000 }));
+});

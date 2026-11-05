@@ -1,5 +1,5 @@
 /*
- * BBGM Scout – forecasting engine.
+ * Courtside – forecasting engine.
  *
  * Forecasts are Monte Carlo simulations of Basketball GM's own yearly
  * progression rules (age-based base change + noise, per-rating age modifiers

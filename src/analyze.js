@@ -1,5 +1,5 @@
 /*
- * BBGM Scout – turns a raw BBGM player record into a scouting summary.
+ * Courtside – turns a raw BBGM player record into a scouting summary.
  * Shared by the player panel and the inline badges.
  */
 (function (root) {

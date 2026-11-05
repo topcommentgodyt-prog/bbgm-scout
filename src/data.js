@@ -1,5 +1,5 @@
 /*
- * BBGM Scout – read-only access to the league's local IndexedDB.
+ * Courtside – read-only access to the league's local IndexedDB.
  *
  * BBGM stores each league in an IndexedDB database named `league<lid>` on
  * this device. We open it read-only, read only the records we need (one

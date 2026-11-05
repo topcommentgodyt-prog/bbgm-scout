@@ -1,13 +1,13 @@
 # Live testing checklist (run on a copied league)
 
-BBGM Scout has been tested against a mock of BBGM's engine, and its scripts have been run on the live site in a test league (not as an installed extension). Before trusting automation in a league you care about, run this once on a copy. It takes about 20–30 minutes.
+Courtside has been tested against a mock of BBGM's engine, and its scripts have been run on the live site in a test league (not as an installed extension). Before trusting automation in a league you care about, run this once on a copy. It takes about 20–30 minutes.
 
 ## Setup
 
 1. In BBGM, open your league → **Tools → Export** and save the file. Then **New League → Upload league file** to make a copy. Or just start a new random league.
 2. Load the extension (`chrome://extensions` → Developer mode → Load unpacked).
 3. In the popup → **Features**, turn on everything, but leave **Auto Team Management on "Suggest"** for now.
-4. Open **Chrome DevTools → Console** on the BBGM tab and keep it open. Note any red errors that mention BBGM Scout.
+4. Open **Chrome DevTools → Console** on the BBGM tab and keep it open. Note any red errors that mention Courtside.
 
 For each step, mark ✅ / ❌ and note what happened.
 

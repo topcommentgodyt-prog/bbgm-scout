@@ -1,6 +1,6 @@
-# BBGM Scout: complete feature reference
+# Courtside: complete feature reference
 
-BBGM Scout is a browser extension (Chrome/Edge/Brave/Arc, Firefox; Safari via Xcode conversion) for **Basketball GM** (play.basketball-gm.com), the single-player basketball franchise simulation. It adds scouting forecasts, decision support and optional automation to the game. It runs entirely in the browser. League data never leaves your device, except for the optional "Ask Claude" feature, which sends a short player summary to the Claude API using your own key.
+Courtside is a browser extension (Chrome/Edge/Brave/Arc, Firefox; Safari via Xcode conversion) for **Basketball GM** (play.basketball-gm.com), the single-player basketball franchise simulation. It adds scouting forecasts, decision support and optional automation to the game. It runs entirely in the browser. League data never leaves your device, except for the optional "Ask Claude" feature, which sends a short player summary to the Claude API using your own key.
 
 This document describes every feature as it exists today (v2), how each one works, its settings, and its known limits.
 
@@ -33,7 +33,7 @@ This document describes every feature as it exists today (v2), how each one work
 
 ## 2. The forecasting engine (behind everything)
 
-- BBGM Scout doesn't use a guessed age curve. It **re-implements Basketball GM's actual yearly player progression rules**:
+- Courtside doesn't use a guessed age curve. It **re-implements Basketball GM's actual yearly player progression rules**:
   - The age-based base change, with the same noise distribution BBGM uses: bounded normal noise, wider for ages 23 and under.
   - Each of the 15 ratings' own age modifiers and change limits (height, strength, speed, jumping, endurance, inside, dunk, free throw, field goal, three-point, offensive IQ, defensive IQ, dribbling, passing, rebounding).
   - The coaching-budget effect.
@@ -293,7 +293,12 @@ Choose a mode: **Suggest** (a list of proposed moves, each with Do it / Skip, pl
   - **Too many long-term injuries:** lower Injury Rate by 25%.
   - **Style vs. the modern NBA:** three-point attempt rate outside 33–47% (target ~40%) → new Three Point Tendency Factor; points per game outside 104–124 (target ~114) → new Pace.
 - Severity tags (high, medium, low), a "League over the years" table, and a button that opens BBGM's League Settings. Early in a season, it judges from the last completed season.
-- **Suggestions only:** it never changes settings. Most require God Mode.
+- **Apply suggestions (v2.5):** each suggestion with exact values has an **Apply** button, and there's **Apply all suggestions** at the top. Advice-only items (for example, "import draft classes") are marked and never applied.
+  - A confirmation lists every change (current → new) before anything happens.
+  - Changes go through BBGM's own `updateGameAttributes`, the same function as the League Settings page. Only these settings can be changed, each within sane bounds: salary cap type, luxury tax, trade salary match, AI-to-AI trades factor, salary cap, luxury tax threshold, min/max contract, inflation average/std, injury rate, three-point tendency factor, pace.
+  - Most of these settings are locked unless God Mode is on. If it's off, the confirmation says so and applying turns it on, which disables achievements for that league in BBGM.
+  - **Undo last change** restores the previous values; God Mode stays on. Each apply and undo is logged.
+  - Nothing changes unless you press a button.
 
 ---
 
@@ -390,6 +395,17 @@ Choose a mode: **Suggest** (a list of proposed moves, each with Do it / Skip, pl
 - **Defaults:** scouting tools on; Auto Drafter, Auto Team Management and Autopilot off.
 
 ---
+
+## 13a. Look and name (v2.5)
+
+- Renamed from BBGM Scout to **Courtside**. Internal names, storage keys, the repo and download links are unchanged, so settings, pins, reports and protections carry over.
+- A "courtside" theme:
+  - hardwood tones in light mode, arena navy in dark mode, with a basketball-orange accent
+  - an orange header with a basketball icon
+  - scoreboard-style stat tiles and pill buttons
+- Tabs are a single sliding row of icon pills; the active tab is kept in view.
+- The forecast chart is a fan chart with the 80% range, and the predicted OVR table has range ribbons.
+- Hover cards and the popup use the same palette.
 
 ## 14. Testing and known limits
 

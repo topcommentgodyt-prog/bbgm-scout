@@ -1,5 +1,5 @@
 /*
- * BBGM Scout – AI Assistant, Trade Helper, Targets, Free Agents, Auto Drafter,
+ * Courtside – AI Assistant, Trade Helper, Targets, Free Agents, Auto Drafter,
  * Auto Team Management (incl. minutes) and Autopilot.
  *
  * Every action goes through BBGM's own API (see bridge-main.js), so the game

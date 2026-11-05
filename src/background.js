@@ -1,5 +1,5 @@
 /*
- * BBGM Scout – background script: optional "Ask Claude" calls.
+ * Courtside – background script: optional "Ask Claude" calls.
  *
  * Off by default. When you turn it on and paste an Anthropic API key, the
  * assistant sends your question plus a compact summary of the relevant
@@ -23,14 +23,14 @@ const MODELS = {
   "claude-haiku-4-5": { label: "Claude Haiku 4.5", legacy: true },
 };
 
-const SYSTEM = `You are the scouting assistant inside BBGM Scout, a browser extension for the game Basketball GM.
-You get JSON with the user's team, league context and player forecasts from BBGM Scout's model, which simulates BBGM's real progression rules.
+const SYSTEM = `You are the scouting assistant inside Courtside, a browser extension for the game Basketball GM.
+You get JSON with the user's team, league context and player forecasts from Courtside's model, which simulates BBGM's real progression rules.
 Field notes: ovr/pot are BBGM ratings as shown to the user; peakOvr is the median career-high OVR; ceiling is the 90th percentile; breakout/decline are next-season probabilities; gemScore > 15 means the Scout model rates the player well above BBGM's own valuation.
 Answer the user's question directly, using only the data given. Give a clear recommendation first, then the 2-4 facts from the data that support it. Keep it under 200 words unless asked for more. If the data can't answer the question, say what's missing.`;
 
 async function askClaude({ question, context, model }) {
   const { claudeKey } = await api.storage.local.get("claudeKey");
-  if (!claudeKey) return { error: "Add your Anthropic API key in BBGM Scout settings first." };
+  if (!claudeKey) return { error: "Add your Anthropic API key in Courtside settings first." };
   const m = MODELS[model] ? model : "claude-opus-5-5";
   const body = {
     model: m,

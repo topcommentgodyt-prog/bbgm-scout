@@ -1,10 +1,11 @@
 /*
- * BBGM Scout – Realism advisor.
+ * Courtside – Realism advisor.
  *
  * Records a few league-wide numbers every season (stars, parity, payrolls vs.
  * the cap, contract sizes, injuries, scoring and three-point rates) and, as
  * the years go by, suggests God Mode / league settings that would keep the
- * league realistic. It only suggests; it never changes settings.
+ * league realistic. Suggestions with an exact value (`key` + `value`) can be applied from the Realism tab with
+ * "Apply suggestions"; nothing changes unless you click it.
  */
 (function (root) {
   "use strict";
@@ -62,7 +63,11 @@
     return hist;
   }
 
-  /** Suggestions: { title, why, setting: [category, name], current, suggest, severity } */
+  /**
+   * Suggestions: { title, why, severity, changes: [{ setting: [category, name], current, suggest, key?, value? }] }
+   * `key` is BBGM's league-setting name and `value` the exact value to set; changes without them (e.g. "import
+   * draft classes") are advice only.
+   */
   function advise(L, hist) {
     const ga = L.snap.ga || {};
     const rows = Object.values(hist).filter((r) => !r.partial).sort((a, b) => a.season - b.season);
@@ -82,39 +87,39 @@
       add({ severity: "high", title: "Talent is concentrating on a few teams",
         why: `Team strength spread is ${avgParity.toFixed(1)} points of margin of victory${dynasty ? ", and the best team has won 78%+ of its games in 2 of the last 3 seasons" : ""}. Real leagues are usually around 5 to 7.`,
         changes: [
-          ga.salaryCapType === "soft" ? { setting: ["Finances", "Salary Cap Type"], current: "soft", suggest: "hard (no exceeding the cap to re-sign stars)" } : null,
-          { setting: ["Finances", "Luxury Tax"], current: ga.luxuryTax, suggest: Math.min(3, (ga.luxuryTax || 1.5) + 0.5).toFixed(1) },
-          ga.softCapTradeSalaryMatch > 110 ? { setting: ["Finances", "Trade Salary Match"], current: `${ga.softCapTradeSalaryMatch}%`, suggest: "110%" } : null,
-          ga.aiTradesFactor > 0.5 ? { setting: ["Events", "AI-to-AI Trades Factor"], current: ga.aiTradesFactor, suggest: (ga.aiTradesFactor * 0.6).toFixed(2) } : null,
+          ga.salaryCapType === "soft" ? { setting: ["Finances", "Salary Cap Type"], current: "soft", suggest: "hard (no exceeding the cap to re-sign stars)", key: "salaryCapType", value: "hard" } : null,
+          { setting: ["Finances", "Luxury Tax"], current: ga.luxuryTax, suggest: Math.min(3, (ga.luxuryTax || 1.5) + 0.5).toFixed(1), key: "luxuryTax", value: Number(Math.min(3, (ga.luxuryTax || 1.5) + 0.5).toFixed(1)) },
+          ga.softCapTradeSalaryMatch > 110 ? { setting: ["Finances", "Trade Salary Match"], current: `${ga.softCapTradeSalaryMatch}%`, suggest: "110%", key: "softCapTradeSalaryMatch", value: 110 } : null,
+          ga.aiTradesFactor > 0.5 ? { setting: ["Events", "AI-to-AI Trades Factor"], current: ga.aiTradesFactor, suggest: (ga.aiTradesFactor * 0.6).toFixed(2), key: "aiTradesFactor", value: Number((ga.aiTradesFactor * 0.6).toFixed(2)) } : null,
         ].filter(Boolean) });
     } else if (avgParity < 3.5 && rows.length >= 2) {
       add({ severity: "low", title: "Every team is about the same",
         why: `Team strength spread is only ${avgParity.toFixed(1)} points. Real leagues have clearer contenders and rebuilders.`,
-        changes: [{ setting: ["Finances", "Luxury Tax"], current: ga.luxuryTax, suggest: Math.max(1, (ga.luxuryTax || 1.5) - 0.5).toFixed(1) },
-          { setting: ["Events", "AI-to-AI Trades Factor"], current: ga.aiTradesFactor, suggest: Math.min(3, (ga.aiTradesFactor || 1) * 1.5).toFixed(2) }] });
+        changes: [{ setting: ["Finances", "Luxury Tax"], current: ga.luxuryTax, suggest: Math.max(1, (ga.luxuryTax || 1.5) - 0.5).toFixed(1), key: "luxuryTax", value: Number(Math.max(1, (ga.luxuryTax || 1.5) - 0.5).toFixed(1)) },
+          { setting: ["Events", "AI-to-AI Trades Factor"], current: ga.aiTradesFactor, suggest: Math.min(3, (ga.aiTradesFactor || 1) * 1.5).toFixed(2), key: "aiTradesFactor", value: Number(Math.min(3, (ga.aiTradesFactor || 1) * 1.5).toFixed(2)) }] });
     }
 
     // 2. Money: payrolls running away from the cap, max deals everywhere, no inflation over many years
     if (ref.payrollRatio != null && (ref.payrollRatio > 1.15 || (ref.overTax || 0) > 0.35)) {
       add({ severity: "medium", title: "Payrolls have outgrown the salary cap",
         why: `The median payroll is ${(ref.payrollRatio * 100).toFixed(0)}% of the cap and ${Math.round((ref.overTax || 0) * 100)}% of teams pay luxury tax.`,
-        changes: [{ setting: ["Finances", "Salary Cap"], current: money(ga.salaryCap), suggest: money(Math.round(ga.salaryCap * 1.1)) },
-          { setting: ["Finances", "Luxury Tax Threshold"], current: money(ga.luxuryPayroll), suggest: money(Math.round(ga.luxuryPayroll * 1.1)) }] });
+        changes: [{ setting: ["Finances", "Salary Cap"], current: money(ga.salaryCap), suggest: money(Math.round(ga.salaryCap * 1.1)), key: "salaryCap", value: Math.round(ga.salaryCap * 1.1) },
+          { setting: ["Finances", "Luxury Tax Threshold"], current: money(ga.luxuryPayroll), suggest: money(Math.round(ga.luxuryPayroll * 1.1)), key: "luxuryPayroll", value: Math.round(ga.luxuryPayroll * 1.1) }] });
     } else if (ref.payrollRatio != null && ref.payrollRatio < 0.8 && ref.gamesPlayed > 5) {
       add({ severity: "low", title: "Teams have lots of unused cap space",
         why: `The median payroll is only ${(ref.payrollRatio * 100).toFixed(0)}% of the cap, so free agency becomes a free-for-all.`,
-        changes: [{ setting: ["Finances", "Salary Cap"], current: money(ga.salaryCap), suggest: money(Math.round(ga.salaryCap * 0.92)) },
-          { setting: ["Contracts", "Min Contract"], current: money(ga.minContract), suggest: money(Math.round(ga.minContract * 1.1)) }] });
+        changes: [{ setting: ["Finances", "Salary Cap"], current: money(ga.salaryCap), suggest: money(Math.round(ga.salaryCap * 0.92)), key: "salaryCap", value: Math.round(ga.salaryCap * 0.92) },
+          { setting: ["Contracts", "Min Contract"], current: money(ga.minContract), suggest: money(Math.round(ga.minContract * 1.1)), key: "minContract", value: Math.round(ga.minContract * 1.1) }] });
     }
     if (ref.maxShare != null && ref.maxShare > 0.1) {
       add({ severity: "medium", title: "Too many max contracts",
         why: `${Math.round(ref.maxShare * 100)}% of players are on max deals (closer to 5% is realistic), so stars and good starters get paid the same.`,
-        changes: [{ setting: ["Contracts", "Max Contract"], current: money(ga.maxContract), suggest: money(Math.round(ga.maxContract * 1.15)) }] });
+        changes: [{ setting: ["Contracts", "Max Contract"], current: money(ga.maxContract), suggest: money(Math.round(ga.maxContract * 1.15)), key: "maxContract", value: Math.round(ga.maxContract * 1.15) }] });
     }
     if (rows.length >= 4 && !(ga.inflationAvg > 0)) {
       add({ severity: "low", title: "The salary cap never changes",
         why: `${rows.length} seasons in with no inflation. In the NBA the cap has grown about 5% a year, which keeps old contracts aging realistically.`,
-        changes: [{ setting: ["Inflation", "Average"], current: `${ga.inflationAvg || 0}%`, suggest: "3%" }, { setting: ["Inflation", "Standard Deviation"], current: `${ga.inflationStd || 0}%`, suggest: "2%" }] });
+        changes: [{ setting: ["Inflation", "Average"], current: `${ga.inflationAvg || 0}%`, suggest: "3%", key: "inflationAvg", value: 3 }, { setting: ["Inflation", "Standard Deviation"], current: `${ga.inflationStd || 0}%`, suggest: "2%", key: "inflationStd", value: 2 }] });
     }
 
     // 3. Star inflation / deflation over the years
@@ -136,7 +141,7 @@
     if (ref.injuredShare > 0.1) {
       add({ severity: "medium", title: "Too many long-term injuries",
         why: `${Math.round(ref.injuredShare * 100)}% of players are out 20+ games.`,
-        changes: [{ setting: ["Injuries", "Injury Rate"], current: ga.injuryRate != null ? ga.injuryRate.toExponential(2) : "", suggest: ga.injuryRate != null ? (ga.injuryRate * 0.75).toExponential(2) : "lower by 25%" }] });
+        changes: [{ setting: ["Injuries", "Injury Rate"], current: ga.injuryRate != null ? ga.injuryRate.toExponential(2) : "", suggest: ga.injuryRate != null ? (ga.injuryRate * 0.75).toExponential(2) : "lower by 25%", ...(ga.injuryRate != null ? { key: "injuryRate", value: Number((ga.injuryRate * 0.75).toExponential(3)) } : {}) }] });
     }
 
     // 5. Style of play compared with the modern NBA (~40% of shots are threes, ~114 points a game)
@@ -145,18 +150,36 @@
         const f = (ga.threePointTendencyFactor || 1) * (0.4 / ref.tpaRate);
         add({ severity: "low", title: ref.tpaRate < 0.33 ? "Fewer threes than the modern game" : "More threes than the modern game",
           why: `${Math.round(ref.tpaRate * 100)}% of shots are threes. The modern NBA is about 40%.`,
-          changes: [{ setting: ["Tendencies", "Three Point Tendency Factor"], current: ga.threePointTendencyFactor ?? 1, suggest: f.toFixed(2) }] });
+          changes: [{ setting: ["Tendencies", "Three Point Tendency Factor"], current: ga.threePointTendencyFactor ?? 1, suggest: f.toFixed(2), key: "threePointTendencyFactor", value: Number(f.toFixed(2)) }] });
       }
       const ppgTeam = ref.ppg; // team points per team-game
       if (ppgTeam != null && (ppgTeam < 104 || ppgTeam > 124)) {
         add({ severity: "low", title: ppgTeam < 104 ? "Scoring is low for the modern era" : "Scoring is high for the modern era",
           why: `Teams average ${ppgTeam.toFixed(1)} points per game. The modern NBA is about 112 to 116.`,
-          changes: [{ setting: ["Tendencies", "Pace"], current: ga.pace ?? 100, suggest: Math.round((ga.pace || 100) * (114 / ppgTeam)) }] });
+          changes: [{ setting: ["Tendencies", "Pace"], current: ga.pace ?? 100, suggest: Math.round((ga.pace || 100) * (114 / ppgTeam)), key: "pace", value: Math.round((ga.pace || 100) * (114 / ppgTeam)) }] });
       }
     }
     const order = { high: 0, medium: 1, low: 2 };
     return { now, rows, suggestions: out.sort((a, b) => order[a.severity] - order[b.severity]) };
   }
 
-  root.BBGMScoutRealism = { measure, record, advise };
+  // League settings the Realism tab may change, with sane bounds (anything else is refused).
+  const APPLY_BOUNDS = {
+    salaryCapType: ["hard", "soft", "none"], luxuryTax: [0, 10], softCapTradeSalaryMatch: [100, 200], aiTradesFactor: [0, 10],
+    salaryCap: [1000, 1e7], luxuryPayroll: [1000, 1e7], minContract: [100, 1e6], maxContract: [1000, 1e7],
+    inflationAvg: [-10, 20], inflationStd: [0, 20], injuryRate: [0, 0.01], threePointTendencyFactor: [0, 5], pace: [50, 200],
+  };
+  /** The exact settings a list of suggestions would change: { key: value }, later suggestions winning. */
+  function settingsToApply(suggestions) {
+    const out = {};
+    for (const sg of suggestions) for (const c of sg.changes || []) {
+      if (!c.key || !(c.key in APPLY_BOUNDS) || c.value == null) continue;
+      const b = APPLY_BOUNDS[c.key];
+      if (typeof b[0] === "string" ? !b.includes(c.value) : !(Number.isFinite(c.value) && c.value >= b[0] && c.value <= b[1])) continue;
+      out[c.key] = c.value;
+    }
+    return out;
+  }
+
+  root.BBGMScoutRealism = { measure, record, advise, settingsToApply, APPLY_BOUNDS };
 })(globalThis);

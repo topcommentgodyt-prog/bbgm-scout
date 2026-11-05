@@ -1,5 +1,5 @@
 /*
- * BBGM Scout – extension-side client for the page-world bridge, plus the
+ * Courtside – extension-side client for the page-world bridge, plus the
  * read-only worker scripts that build a live snapshot of the league.
  */
 (function (root) {

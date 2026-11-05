@@ -1,5 +1,5 @@
 /*
- * BBGM Scout – Franchise Strategy Brain, trade scoring and move memory.
+ * Courtside – Franchise Strategy Brain, trade scoring and move memory.
  *
  * Pure functions (no DOM, no BBGM calls), so they run in the page and in Node tests.
  *

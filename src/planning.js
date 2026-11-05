@@ -1,5 +1,5 @@
 /*
- * BBGM Scout – planning tools:
+ * Courtside – planning tools:
  *   - Protected players and picks ("Never trade" / "Ask first" / "Available"),
  *     plus contract-length and cap-reserve rules that every automated feature respects
  *   - Team needs scanner (biggest roster weaknesses vs. the league, with fixes)

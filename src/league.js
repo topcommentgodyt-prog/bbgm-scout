@@ -1,5 +1,5 @@
 /*
- * BBGM Scout – league-wide valuation.
+ * Courtside – league-wide valuation.
  *
  * Turns a live snapshot (from bridge.js) into a value for every player and
  * draft pick, from the point of view of your team's timeline:

@@ -1,5 +1,5 @@
 /*
- * BBGM Scout – synced storage.
+ * Courtside – synced storage.
  *
  * Uses the browser's built-in sync storage (chrome.storage.sync / Firefox
  * Sync), so settings, pinned players and saved reports follow your browser

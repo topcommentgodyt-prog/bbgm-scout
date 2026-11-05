@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "BBGM Scout",
-  "version": "2.4.3",
-  "description": "Scouting, trade help, free agents, auto draft, team management and autopilot for Basketball GM.",
+  "name": "Courtside",
+  "version": "2.5.0",
+  "description": "The all-in-one GM toolkit for Basketball GM: scouting, OVR predictions, trades, contracts, draft, team management and Autopilot.",
   "permissions": [
     "storage"
   ],
@@ -13,7 +13,7 @@
     "service_worker": "src/background.js"
   },
   "action": {
-    "default_title": "BBGM Scout",
+    "default_title": "Courtside",
     "default_popup": "popup/popup.html",
     "default_icon": {
       "16": "icons/icon16.png",

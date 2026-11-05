@@ -1,5 +1,5 @@
 /*
- * BBGM Scout – Moneyball: value per dollar.
+ * Courtside – Moneyball: value per dollar.
  *
  * Everything is measured in BBGM's own team rating (predicted margin of victory, MOV): what a player adds
  * to YOUR team's rating, divided by what they cost. ~1 point of MOV ≈ 2.7 wins over 82 games.

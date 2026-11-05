@@ -1,5 +1,5 @@
 /*
- * BBGM Scout – page-world bridge.
+ * Courtside – page-world bridge.
  *
  * Runs in the BBGM page itself so it can reach the game's own `bbgm.toWorker`
  * function (the same one BBGM's UI uses to talk to its game engine). The
@@ -31,6 +31,8 @@
     "main.relocateVote",
     "main.updateProtectedPlayers",
     "main.startExpansionDraft",
+    // League settings, only when you press "Apply suggestions" in the Realism tab (keys are checked there)
+    "main.updateGameAttributes",
     // Play menu, used only by Autopilot when you turn it on
     "playMenu.stop",
     "playMenu.day",

@@ -33,6 +33,7 @@
   }
 
   const yieldUI = () => new Promise((r) => setTimeout(r, 0));
+  const nowMs = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 
   /**
    * opts.strategyStored: the last Auto strategy decision for this league ({ key, cp, ... }), for hysteresis.
@@ -54,7 +55,7 @@
       for (const k of fcCache.keys()) if (Number(k.split(":")[1]) < snap.season) fcCache.delete(k);
     }
     const fcs = [];
-    let i = 0;
+    let i = 0, computedNew = false, lastYield = nowMs();
     for (const p of snap.players) {
       if (!p.ratings || !p.ratings.length) continue;
       const cur = p.ratings[p.ratings.length - 1];
@@ -66,9 +67,14 @@
           res = A.analyze(ctx, p, settings, { nSims: SIMS, full: false, maxAge: Math.min(40, age + YEARS) });
         } catch (e) { continue; }
         fcCache.set(key, res);
+        computedNew = true;
       }
       fcs.push([p, res]);
-      if (++i % 40 === 0) { onProgress && onProgress(0.8 * i / snap.players.length); await yieldUI(); }
+      i++;
+      // Yield to the page (and update the progress message) only while new forecasts are being computed, at most
+      // every 50 ms. On a normal game day almost everything is cached, and yielding every 40 players used to cost
+      // more than the work itself (each yield is a ≥4 ms browser timer plus a panel redraw).
+      if (computedNew && nowMs() - lastYield > 50) { onProgress && onProgress(0.8 * i / snap.players.length); await yieldUI(); lastYield = nowMs(); }
     }
     const fcOf = new Map(fcs.map(([p, res]) => [p.pid, res]));
     const ovrIn = (pid, y) => { const r = fcOf.get(pid); if (!r) return 0; if (y === 0) return r.summary.ovr; const pt = r.fc.meanPath[y]; return pt ? pt.ovr : r.fc.meanPath[r.fc.meanPath.length - 1].ovr; };
@@ -94,7 +100,9 @@
     const committedNext = mine.filter((x) => x.p.contract && x.p.contract.exp >= nextSeason + (snap.phase > PH.PLAYOFFS ? 0 : 1)).reduce((s, x) => s + x.p.contract.amount, 0);
     const features = {
       rankNow: pctOf(movNow, snap.userTid), rankFuture: pctOf(mov2, snap.userTid),
-      winPct: user && gpOf(user) >= 10 ? recOf(user) : null, gp: gpOf(user), numGames,
+      // The record only counts during the season (and at most 20%), never in the offseason: otherwise the
+      // finished season's record vs. a 0-0 preseason makes Auto flip strategy across the season boundary.
+      winPct: user && gpOf(user) >= 10 && snap.phase >= PH.REGULAR_SEASON && snap.phase <= PH.PLAYOFFS ? recOf(user) : null, gp: gpOf(user), numGames,
       coreAge: top5.length ? top5.reduce((s, x) => s + (snap.season - x.p.born.year), 0) / top5.length : 27,
       capRoomPct: ga.salaryCap ? (ga.salaryCap - committedNext) / ga.salaryCap : 0,
       firsts: snap.draftPicks.filter((d) => d.tid === snap.userTid && d.round === 1 && d.season >= draftSeason && d.season <= draftSeason + 1).length,

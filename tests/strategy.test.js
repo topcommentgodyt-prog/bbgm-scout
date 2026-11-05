@@ -152,3 +152,23 @@ test("run summary: observed records, titles, payroll per win, no undone moves", 
   assert.strictEqual(sm.seasons[1].strategy, "Contend → Rebuild");
   assert.deepStrictEqual(sm.strategyChanges, ["Strategy (Auto): Contend → Rebuild"]);
 });
+
+test("strategy: after a recent change, a small move back doesn't flip it again", () => {
+  // Just changed to contend at the 2026 offseason checkpoint.
+  const stored = { key: "contend", cp: "2026:off", changedAt: 2026 };
+  const slightlyWeaker = f({ rankNow: 0.45, rankFuture: 0.5 }); // strength 0.465: below 0.55 - 0.05, above 0.55 - 0.12
+  assert.strictEqual(SG.resolve("auto", slightlyWeaker, "2027:start", stored).key, "contend");
+  // Two seasons later the normal margin applies again.
+  assert.strictEqual(SG.resolve("auto", slightlyWeaker, "2029:start", { ...stored, cp: "2028:off" }).key, "develop");
+  // A big drop still changes it.
+  assert.strictEqual(SG.resolve("auto", f({ rankNow: 0.05, rankFuture: 0.05 }), "2027:start", stored).key, "rebuild");
+});
+
+test("memory: a cooldown started at the draft still applies in the next preseason", () => {
+  const mem = SG.emptyMemory();
+  const draft = SG.gameClock(2026, 5, 82);
+  SG.recordTrade(mem, [{ tid: 1, pids: [10], dpids: [] }, { tid: 2, pids: [20], dpids: [] }], draft);
+  const preseason = SG.gameClock(2027, 0, 0);
+  assert.ok(preseason - draft < 30, `offseason gap ${preseason - draft}`);
+  assert.match(SG.tradeBlocked(mem, [{ tid: 1, pids: [20], dpids: [] }, { tid: 3, pids: [30], dpids: [] }], preseason, { cooldown: 30, score: 0.6, min: 0.5 }), /cooldown/);
+});

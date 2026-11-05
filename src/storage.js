@@ -159,11 +159,18 @@
   // ---- Device-only storage (never synced): action log, API key, bookkeeping ----
   const localGet = async (k) => { try { return (await local.get(k))[k]; } catch (e) { return undefined; } };
   const localSet = async (k, v) => { try { await local.set({ [k]: v }); } catch (e) { /* ignore */ } };
+  // While Autopilot runs, every entry is also kept (compactly, in memory) for the run summary, so long runs
+  // aren't limited by the activity log's size.
+  let runLog = null;
+  const startRunLog = () => { runLog = []; };
+  const runLogEntries = () => (runLog ? [...runLog] : []);
   async function addLog(entry) {
     const log = (await localGet("actionLog")) || [];
     // Unique, increasing timestamps (they identify entries for Undo).
-    log.unshift({ t: Math.max(Date.now(), ((log[0] && log[0].t) || 0) + 1), ...entry });
-    await localSet("actionLog", log.slice(0, 200));
+    const e = { t: Math.max(Date.now(), ((log[0] && log[0].t) || 0) + 1), ...entry };
+    log.unshift(e);
+    if (runLog) runLog.push({ t: e.t, kind: e.kind, text: e.kind === "minutes" ? "" : e.text, ex: e.ex && e.ex.num ? { num: e.ex.num } : undefined });
+    await localSet("actionLog", log.slice(0, 500));
   }
   const getLog = async () => (await localGet("actionLog")) || [];
   const clearLog = () => localSet("actionLog", []);
@@ -171,6 +178,7 @@
   async function markUndone(t) {
     const log = (await localGet("actionLog")) || [];
     await localSet("actionLog", log.map((e) => (e.t === t ? { ...e, undone: true } : e)));
+    if (runLog) runLog.forEach((e) => { if (e.t === t) e.undone = true; });
   }
 
   // ---- Strategy decisions (synced, tiny: one key per league) ----
@@ -233,7 +241,7 @@
 
   root.BBGMScoutStorage = {
     MODEL_VERSION, DEFAULT_SETTINGS, getSettings, saveSettings, getPins, isPinned, togglePin, refreshPin,
-    listReports, saveReport, deleteReport, status, onChange, localGet, localSet, addLog, getLog, clearLog, markUndone, getStrategy, setStrategy,
+    listReports, saveReport, deleteReport, status, onChange, localGet, localSet, addLog, getLog, clearLog, markUndone, getStrategy, setStrategy, startRunLog, runLogEntries,
     rememberLeague, leagueMap, knownLeague, localUrl, migrateLeague, markSaved,
   };
 })(globalThis);

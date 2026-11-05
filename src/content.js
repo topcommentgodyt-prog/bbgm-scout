@@ -393,6 +393,24 @@
     <div class="legend"><span><i></i>History</span><span><i class="f"></i>Avg forecast</span><span>- - Ceiling ${res.summary.ceiling}</span></div>`;
   }
 
+  /**
+   * Predicted OVR for the next seasons from the forecast (average of the simulations, with the 10th–90th
+   * percentile range). Uses only the ratings you can see (scouting fog included).
+   */
+  function ovrPredictions(r, n = 4) {
+    const path = r.fc.meanPath || [];
+    const out = [];
+    for (let i = 1; i <= n && i < path.length; i++) out.push({ season: r.summary.season + i, age: path[i].age, ovr: Math.round(path[i].ovr), lo: Math.round(path[i].lo), hi: Math.round(path[i].hi) });
+    return out;
+  }
+  function predTable(r) {
+    const rows = ovrPredictions(r);
+    if (!rows.length) return "";
+    const s = r.summary;
+    return `<div class="h">Predicted OVR</div><table><tr><th>Season</th><th>Age</th><th title="Expected OVR: the average of the simulations">OVR</th><th title="80% of simulations land in this range">Range</th><th title="Change from today">Δ</th></tr>
+      ${rows.map((x) => `<tr><td>${x.season}</td><td>${x.age}</td><td><b>${x.ovr}</b></td><td class="mut">${x.lo}–${x.hi}</td><td class="${x.ovr - s.ovr >= 2 ? "good" : x.ovr - s.ovr <= -2 ? "bad" : ""}">${x.ovr - s.ovr >= 0 ? "+" : ""}${x.ovr - s.ovr}</td></tr>`).join("")}</table>`;
+  }
+
   function outlookBody() {
     const o = st.outlook;
     if (!o) return `<div class="msg">Open any player's page to see their development outlook.${settings.features.assistant ? " The AI tab lists hidden gems around the league." : ""}</div>`;
@@ -416,7 +434,7 @@
     });
     return `
       <div class="title"><div class="name">${plink(o.pid, s.name)}</div><span class="tag ${tagCls}">${esc(s.label)}</span></div>
-      <div class="sub">Age ${s.age} · OVR ${s.ovr} · POT ${s.pot}${s.pos ? ` · ${esc(s.pos)}` : ""}${gem ? ` · <span class="chip ${gem.score >= 7 ? "gem" : gem.score <= -10 ? "over" : ""}" title="See the AI tab">${esc(gem.verdict)}</span>` : ""}</div>
+      <div class="sub">Age ${s.age} · OVR ${s.ovr} · POT ${s.pot} · <span title="Scout POT: the forecast's most likely career-high OVR (median of ${r.fc.nSims.toLocaleString()} simulations of BBGM's progression rules). BBGM's own POT comes from only 20 simulations, so it can be noisy. It's above the year-by-year predictions because each simulated career peaks in a different season." class="${s.peakOvr - s.pot >= 3 ? "good" : s.peakOvr - s.pot <= -3 ? "bad" : ""}">Scout POT ${s.peakOvr}</span>${s.pos ? ` · ${esc(s.pos)}` : ""}${gem ? ` · <span class="chip ${gem.score >= 7 ? "gem" : gem.score <= -10 ? "over" : ""}" title="See the AI tab">${esc(gem.verdict)}</span>` : ""}</div>
       <div class="big">
         <div title="Median age of career-high OVR (middle 50%: ${r.fc.peakAgeRange[0]}–${r.fc.peakAgeRange[1]})"><small>Peak age</small><strong>${s.peakAge}</strong><em>${r.fc.peakAgeRange[0]}–${r.fc.peakAgeRange[1]}</em></div>
         <div title="Median career-high OVR (10th pct: ${r.fc.peakOvrLow})"><small>Peak OVR</small><strong>${s.peakOvr}</strong><em>low ${r.fc.peakOvrLow}</em></div>
@@ -429,6 +447,7 @@
         <div title="${esc(r.trend.diff != null ? `Average ${num(r.trend.diff)} OVR/yr vs. expected\n${trendTip}` : "Needs at least one completed season")}\n\nBBGM progression is random each year, so this describes the past; it doesn't change the forecast."><span>Development trend</span><span class="${trCls}">${esc(s.trend)}</span></div>
         <div title="${esc(r.confidence.reasons.join("\n"))}"><span>Confidence</span><span class="${confCls}">${s.confidence} · ${r.confidence.score}</span></div>
       </div>
+      ${predTable(r)}
       ${sparkline(r)}
       <div class="why">${esc(r.confidence.reasons[0])}${r.fog ? " · fog on" : ""} · ${r.fc.nSims.toLocaleString()} sims</div>
       ${st.L && st.L.byPid.get(o.pid) && st.L.byPid.get(o.pid).p.tid === st.L.snap.userTid ? `<div class="rows" style="margin-top:6px"><div><span>Trade protection</span><span>${protectSelect("player", o.pid)}</span></div></div>` : ""}
@@ -989,7 +1008,7 @@
       if (!p.gameSim && !p.drafting) return p;
       if (Date.now() - t0 > timeoutMs) throw new Error("BBGM is taking too long");
       if (st.ap.stopReq) return p;
-      await sleep(800);
+      await sleep(250);
     }
   }
   // BBGM asks "Are you sure you want to proceed to free agency while N of your players remain unsigned?"
@@ -1049,6 +1068,7 @@
       if (r && r !== "answered" && !/Waiting for BBGM/.test(st.ap.status)) { st.ap.status = `Waiting for BBGM: it's showing a message that needs you ("${r.replace(/\s+/g, " ")}…")`; render(); }
     }, 1000);
     st.ap = { running: true, status: "Starting…", startSeason: null, stopReq: false, runStart: Date.now(), strategies: {}, rosterStart: null };
+    S.startRunLog();
     render();
     // Autopilot must make every decision the game would otherwise stop and ask you about.
     const apSettings = () => ({ ...settings, manage: { ...settings.manage, resign: true, releases: true, signings: true } });
@@ -1121,13 +1141,15 @@
         const before = progressKey(poll);
         st.ap.lastKey = before;
         await B.call("playMenu", action, undefined, 30 * 60 * 1000).catch((e) => { throw new Error(`${label} failed: ${e.message}`); });
-        await sleep(600);
+        // BBGM's play actions resolve when the simulation is done, so there's no need for a long fixed pause;
+        // waitIdle() still waits if BBGM is busy.
+        await sleep(30);
         poll = await waitIdle();
         if (progressKey(poll) === before && poll.phase <= 3 && !st.ap.stopReq) {
           // Some steps can be no-ops (for example, between playoff rounds). Fall back to playing a single day.
           st.ap.status = "Playing one day…"; render();
           await B.call("playMenu", "day", undefined, 30 * 60 * 1000).catch(() => {});
-          await sleep(600);
+          await sleep(30);
           poll = await waitIdle();
         }
         if (progressKey(poll) === before) {
@@ -1149,7 +1171,7 @@
     if (st.ap.startSeason == null) return;
     const p = await B.poll();
     const hist = await B.history(st.ap.startSeason, p.season);
-    const log = (await S.getLog()).filter((e) => e.t >= st.ap.runStart);
+    const log = S.runLogEntries(); // the whole run, not limited by the activity log's size
     const end = (await B.evalJSON(`const ps = await bbgm.idb.cache.players.indexGetAll("playersByTid", bbgm.g.get("userTid")); console.log(JSON.stringify({ pids: ps.map((x) => x.pid) }));`, 15000)).pids;
     st.apSummary = SG.summarizeRun({ rows: hist.rows, userTid: hist.userTid, nr: hist.nr, from: st.ap.startSeason, to: p.season, log,
       strategies: st.ap.strategies, rosterStart: st.ap.rosterStart || [], rosterEnd: end });
@@ -1349,6 +1371,9 @@
     const gem = v && settings.features.assistant ? F.gemVerdict(L, pid) : null;
     const team = v ? (v.p.tid === -1 ? "Free agent" : v.p.tid <= -2 ? "Draft prospect" : (L.teams.get(v.p.tid) || {}).abbrev || "") : "";
     const rows = [];
+    const next = ovrPredictions(r, 2);
+    if (next.length) rows.push(["Predicted OVR", next.map((x) => `${x.season}: <b>${x.ovr}</b> <span class="mut">(${x.lo}–${x.hi})</span>`).join(" · ")]);
+    rows.push(["Scout POT / BBGM POT", `<b>${s.peakOvr}</b> / ${s.pot}`]);
     rows.push(["Breakout / decline", `<span class="${s.breakout >= 0.2 ? "good" : ""}">${pct(s.breakout)}</span> / <span class="${s.decline >= 0.1 ? "bad" : ""}">${pct(s.decline)}</span>`]);
     rows.push(["Bust risk", `<span class="${s.bust >= 0.5 ? "bad" : ""}">${pct(s.bust)}</span>`]);
     rows.push(["Development trend", `<span class="${s.trend === "Above expected" ? "good" : s.trend === "Below expected" ? "bad" : ""}">${esc(s.trend)}</span>`]);

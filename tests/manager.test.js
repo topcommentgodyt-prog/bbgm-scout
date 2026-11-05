@@ -102,3 +102,42 @@ test("autopilot phases: fantasy and expansion drafts have a play action", () => 
   const F = ctx.BBGMScoutFeatures;
   for (const phase of [-2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8]) assert.ok(F.nextPlayAction({ phase, round: 0 }, { apStep: "day" })[0], `phase ${phase}`);
 });
+
+test("minutes: stable after applying, and a short injury doesn't reshuffle the rotation", async () => {
+  for (const teamMode of ["contend", "rebuild", "develop"]) {
+    const { bridge } = createLeague({ seed: 6, scenario: "contender" });
+    await bridge.call("playMenu", "untilRegularSeason");
+    const ctx = load(bridge);
+    const settings = { ...(await ctx.BBGMScoutStorage.getSettings()), teamMode };
+    const snap = await bridge.snapshot();
+    let L = await ctx.BBGMScoutLeague.build(snap, settings, null, {});
+    const F = ctx.BBGMScoutFeatures;
+    for (const x of F.minutesPlan(L, settings)) x.v.p.ptModifier = x.pt; // apply
+    assert.strictEqual(F.minutesPlan(L, settings).length, 0, `${teamMode}: plan is stable once applied`);
+    // Injure the 4th-best player for 3 games.
+    const mine = snap.players.filter((p) => p.tid === snap.userTid).sort((a, b) => b.ratings[0].ovr - a.ratings[0].ovr);
+    mine[3].injury = { type: "Sprained Ankle", gamesRemaining: 3 };
+    L = await ctx.BBGMScoutLeague.build(snap, settings, null, {});
+    const after = F.minutesPlan(L, settings);
+    assert.ok(!after.some((x) => x.v.p.pid === mine[3].pid), `${teamMode}: injured player left alone`);
+    assert.strictEqual(after.length, 0, `${teamMode}: no reshuffle for a short injury`);
+  }
+});
+
+test("trades leave room for this round's re-signings and pending draft picks", async () => {
+  const { bridge } = createLeague({ seed: 2 });
+  await advanceTo(bridge, 7);
+  const ctx = load(bridge);
+  const settings = await ctx.BBGMScoutStorage.getSettings();
+  const L = await ctx.BBGMScoutLeague.build(await bridge.snapshot(), settings, null, {});
+  const acts = await ctx.BBGMScoutFeatures.managerPlan(L, { ...settings, manage: { ...settings.manage, resign: true, trades: true }, tradeMinMov: 0.1 }, { lid: 1, includeTrades: true });
+  const resigns = acts.filter((a) => a.kind === "resign").length;
+  const trade = acts.find((a) => a.kind === "trade");
+  if (trade) {
+    // trade's net roster change + current roster + re-signings must fit
+    const t = trade.pids;
+    const mine = new Set(L.roster(L.snap.userTid).map((p) => p.pid));
+    const out = t.filter((pid) => mine.has(pid)).length, inc = t.length - out;
+    assert.ok(L.capInfo.rosterSize - out + inc + resigns <= L.capInfo.maxRoster, "room left for re-signings");
+  }
+});

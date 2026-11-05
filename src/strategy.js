@@ -29,6 +29,7 @@
   const ORDER = ["rebuild", "develop", "contend", "winnow"];
   const BOUNDS = [0.38, 0.55, 0.72]; // strength cutoffs: rebuild | develop | contend | (contend or win now)
   const MARGIN = 0.05; // hysteresis: a strategy is kept until strength clears its band by this much
+  const RECENT_MARGIN = 0.12; // ...and by more if Auto already changed strategy within the last season
 
   /** Normalizes the teamMode setting. Legacy "balanced" maps to Develop. */
   function manualChoice(teamMode) {
@@ -63,10 +64,10 @@
    * f: { rankNow, rankFuture, winPct, gp, numGames, coreAge, capRoomPct, firsts, youngCore }
    * prev: previous strategy key (for hysteresis) or null.
    */
-  function choose(f, prev) {
+  function choose(f, prev, margin = MARGIN) {
     const x = strength(f);
     const pi = prev ? ORDER.indexOf(prev) : -1;
-    const bounds = BOUNDS.map((b, i) => (pi < 0 ? b : i < pi ? b - MARGIN : b + MARGIN));
+    const bounds = BOUNDS.map((b, i) => (pi < 0 ? b : i < pi ? b - margin : b + margin));
     let idx = bounds.filter((b) => x >= b).length; // 0..3
     const closing = f.rankNow - f.rankFuture; // > 0: projected to get worse
     const aging = (f.coreAge - 27) / 5;
@@ -101,9 +102,14 @@
     const manual = manualChoice(teamMode);
     if (manual) return { key: manual, auto: false, changed: false, decision: stored, reasons: ["chosen by you"] };
     if (stored && stored.key && stored.cp === cp) return { key: stored.key, auto: true, changed: false, decision: stored, reasons: stored.reasons || [] };
-    const c = choose(f, stored && stored.key);
-    const decision = { key: c.key, cp, strength: Math.round(c.strength * 1000) / 1000, reasons: c.reasons, prev: stored ? stored.key : null };
-    return { key: c.key, auto: true, changed: !stored || stored.key !== c.key, decision, reasons: c.reasons };
+    // Changed within the last season (3 checkpoints)? Then it takes a bigger move to change again.
+    const season = Number(String(cp).split(":")[0]);
+    const recent = stored && stored.changedAt != null && season - stored.changedAt <= 1;
+    const c = choose(f, stored && stored.key, recent ? RECENT_MARGIN : MARGIN);
+    const changed = !stored || stored.key !== c.key;
+    const decision = { key: c.key, cp, strength: Math.round(c.strength * 1000) / 1000, reasons: c.reasons, prev: stored ? stored.key : null,
+      changedAt: stored && changed ? season : stored ? stored.changedAt ?? null : null };
+    return { key: c.key, auto: true, changed, decision, reasons: c.reasons };
   }
 
   // ======================= Trade scoring =======================
@@ -159,7 +165,9 @@
   // ======================= Move memory =======================
   /** A game clock in "days": regular season days are games played; the offseason counts as ~40 days. */
   function gameClock(season, phase, gp) {
-    return season * 200 + (phase <= 0 ? 0 : phase <= 3 ? Math.min(gp || 0, 120) : 120 + (phase - 3) * 8);
+    // Continuous across seasons: the offseason counts as a few days, so a cooldown started at the draft
+    // still applies in the next preseason (it used to count as ~40 days and expire over the summer).
+    return season * 130 + (phase <= 0 ? 0 : phase <= 3 ? Math.min(gp || 0, 120) : 120 + (phase - 3));
   }
   const sigOf = (teams) => teams.map((t) => `${t.tid}:${[...t.pids].sort((a, b) => a - b).join(",")}/${[...t.dpids].sort((a, b) => a - b).join(",")}`).join("|");
 

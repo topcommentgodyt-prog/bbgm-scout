@@ -190,9 +190,61 @@
     const year = L.snap.phase === PH.DRAFT ? L.snap.season : L.draftSeason;
     const list = [...L.byPid.values()].filter((v) => v.p.tid === PL.UNDRAFTED && v.p.draft && v.p.draft.year === year);
     const byMarket = [...list].sort((a, b) => b.market - a.market).map((v) => v.p.pid);
-    return list
+    const board = list
       .sort((a, b) => b.draftTalent - a.draftTalent)
-      .map((v, i) => ({ pid: v.p.pid, name: LG.name(L, v.p.pid), s: v.summary, value: v.draftTalent, ourRank: i + 1, marketRank: byMarket.indexOf(v.p.pid) + 1, gem: Math.round(v.gemScore) }));
+      .map((v, i) => ({ pid: v.p.pid, name: LG.name(L, v.p.pid), s: v.summary, value: v.draftTalent, floor: v.floor, upside: v.upside, ourRank: i + 1, marketRank: byMarket.indexOf(v.p.pid) + 1, gem: Math.round(v.gemScore) }));
+    // Tiers: prospects whose forecast ranges overlap with the tier's top player. A prospect stays in the
+    // tier if their ceiling (90th pct peak) reaches the leader's median peak and their value is within 20%.
+    let tier = 0, head = null;
+    for (const b of board) {
+      if (!head || b.value < head.value * 0.8 || b.s.ceiling < head.s.peakOvr) { tier++; head = b; }
+      b.tier = tier;
+    }
+    return board;
+  }
+  /** How many prospects remain in each tier. */
+  const tierCounts = (board) => board.reduce((m, b) => ((m[b.tier] = (m[b.tier] || 0) + 1), m), {});
+
+  /**
+   * Trade-down advice when you're on the clock: if your current tier is deep, ask teams picking a few
+   * spots later what they'd add to swap picks (BBGM's "What would make this work?"). Suggest the deal only
+   * if a prospect from the same tier should still be available at the new pick and you gain value.
+   */
+  async function tradeDownIdeas(L, settings, { maxPartners = 3 } = {}) {
+    const order = L.snap.order;
+    if (L.snap.phase !== PH.DRAFT || !order.length || order[0].tid !== L.snap.userTid) return [];
+    const mine = order[0];
+    if (PR().pickLevel(mine.dpid) !== "available") return [];
+    const board = draftBoard(L);
+    if (!board.length) return [];
+    const topTier = board[0].tier;
+    const depth = board.filter((b) => b.tier === topTier).length;
+    if (depth < 3) return [];
+    const ideas = [];
+    // Partners: other teams picking within the tier's depth (so a tier player should still be there).
+    const partners = order.slice(1, depth).map((dp, i) => ({ dp, idx: i + 1 })).filter((x) => x.dp.tid !== L.snap.userTid).slice(0, maxPartners);
+    for (const { dp, idx } of partners) {
+      try {
+        await B.call("main", "createTrade", tradeTeams(L.snap.userTid, [], [mine.dpid], dp.tid, [], [dp.dpid]));
+        await B.call("main", "tradeCounterOffer");
+        const { teams } = await B.readTrade();
+        if (!teams || !teams[1].dpids.includes(dp.dpid) || !teams[0].dpids.includes(mine.dpid)) continue;
+        if (PR().assetsLevel(teams[0].pids, teams[0].dpids) === "never") continue;
+        // Value: the prospect we expect at the new slot (idx players taken before it) plus whatever else they add,
+        // versus the best prospect now plus anything extra the AI asked from us.
+        const expectedAtNew = board[Math.min(idx, board.length - 1)];
+        const extraGet = L.assetValue(teams[1].pids, teams[1].dpids.filter((d) => d !== dp.dpid));
+        const extraGive = L.assetValue(teams[0].pids, teams[0].dpids.filter((d) => d !== mine.dpid));
+        const gain = expectedAtNew.value + extraGet - extraGive - board[0].value;
+        if (expectedAtNew.tier !== topTier || gain <= 0) continue;
+        const team = L.teams.get(dp.tid);
+        ideas.push({ teams, gain, from: mine, to: dp, slotsDown: idx, depth, expected: expectedAtNew, team: team ? `${team.region} ${team.name}` : `Team ${dp.tid}`,
+          extraGet: [...teams[1].pids.map((pid) => LG.name(L, pid)), ...teams[1].dpids.filter((d) => d !== dp.dpid).map((d) => LG.pickName(L, d))],
+          extraGive: [...teams[0].pids.map((pid) => LG.name(L, pid)), ...teams[0].dpids.filter((d) => d !== mine.dpid).map((d) => LG.pickName(L, d))] });
+      } catch (e) { /* skip this partner */ }
+    }
+    await B.call("main", "clearTrade", "all").catch(() => {});
+    return ideas.sort((a, b) => b.gain - a.gain);
   }
   const tradeUpTried = new Set();
   /** Returns a description of what happened or what is suggested. */
@@ -204,6 +256,14 @@
     const best = board[0];
     if (order[0].tid === L.snap.userTid) {
       if (!act) return { state: "onClock", best, board };
+      if (settings.draftTradeDown && !tradeUpTried.has(`down:${order[0].dpid}`)) {
+        tradeUpTried.add(`down:${order[0].dpid}`);
+        const [down] = await tradeDownIdeas(L, settings);
+        if (down) {
+          const r = await proposeTrade(L, down.teams, `trade down ${down.slotsDown} spot${down.slotsDown === 1 ? "" : "s"}: ${down.depth} similar prospects left`);
+          if (r && r.accepted) return { state: "tradedDown", down };
+        }
+      }
       await B.call("main", "draftUser", best.pid);
       await S.addLog({ kind: "draft", text: `Drafted ${best.name} with pick ${order[0].round}-${order[0].pick} (Scout #${best.ourRank}, BBGM #${best.marketRank}; peak ${best.s.peakOvr}, ceiling ${best.s.ceiling})`, pids: [best.pid] });
       return { state: "picked", best };
@@ -416,6 +476,6 @@
 
   root.BBGMScoutFeatures = {
     gemVerdict, gemList, tradeIdeas, proposeTrade, evaluateCurrentTrade, targets, buildOfferFor, freeAgents, sign,
-    draftBoard, draftStep, managerPlan, runActions, tradeDue, isNecessary, impactText, minutesPlan, nextPlayAction, stopHere, tradesAllowed, PT, fmtMoney,
+    draftBoard, tierCounts, tradeDownIdeas, draftStep, managerPlan, runActions, tradeDue, isNecessary, impactText, minutesPlan, nextPlayAction, stopHere, tradesAllowed, PT, fmtMoney,
   };
 })(globalThis);

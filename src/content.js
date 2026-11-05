@@ -12,6 +12,7 @@
   const F = globalThis.BBGMScoutFeatures;
   const R = globalThis.BBGMScoutRealism;
   const P = globalThis.BBGMScoutPlanning;
+  const MB = globalThis.BBGMScoutMoneyball;
   const ext = globalThis.chrome || globalThis.browser;
 
   const PLAYER_RE = /\/l\/(\d+)\/player\/(\d+)/;
@@ -97,6 +98,7 @@
     ["manager", "Manager", () => settings.features.manager || settings.features.autopilot],
     ["needs", "Needs", () => settings.features.needs],
     ["plan", "Plan", () => settings.features.plan],
+    ["moneyball", "Moneyball", () => settings.features.moneyball],
     ["realism", "Realism", () => settings.features.realism],
   ];
   const needsBridge = () => TABS.slice(1).some(([, , en]) => en());
@@ -153,7 +155,9 @@
       const sel = e.target.closest("select[data-protect]");
       if (!sel) return;
       const [kind, id] = sel.dataset.protect.split(":");
-      await P.setProtection(lidNow(), kind, Number(id), sel.value);
+      const league = await ensureIdentity();
+      if (!league) { st.flash = "BBGM hasn't saved this league yet; try again in a moment."; render(); return; }
+      await P.setProtection(league, kind, Number(id), sel.value);
       st.trades.ideas = null; st.pending = null;
       st.flash = `${sel.value === "never" ? "Never trade" : sel.value === "ask" ? "Ask first" : "Available"} saved. Every automated feature will follow it.`;
       render();
@@ -297,6 +301,7 @@
       case "manager": return managerBody();
       case "realism": return realismBody();
       case "needs": return needsBody();
+      case "moneyball": return moneyballBody();
       case "plan": return planBody();
       default: return "";
     }
@@ -352,10 +357,11 @@
     const trendTip = r.trend.seasons.map((t) => `${t.season}: ${t.actual >= 0 ? "+" : ""}${t.actual} actual vs ${t.expected >= 0 ? "+" : ""}${t.expected.toFixed(1)} expected`).join("\n");
     const bustTip = settings.bustMode === "fixed" ? `Peak OVR stays below ${settings.bustOvr}` : `Peak OVR stays below POT − ${settings.bustMargin} (${r.fc.bustThreshold})`;
     const gem = st.L && settings.features.assistant ? F.gemVerdict(st.L, o.pid) : null;
-    const pin = on(async () => { o.pinned = await S.togglePin(pinSummary(o)); render(); });
+    const pin = on(async () => { await ensureIdentity(); await S.markSaved(o.lid); o.pinned = await S.togglePin(pinSummary(o)); render(); });
     const save = on(async (el) => {
       const note = window.prompt("Optional scouting note for this report:", "");
       if (note === null) return;
+      await ensureIdentity(); await S.markSaved(o.lid);
       const ok = await S.saveReport({ ...pinSummary(o), note, savedAt: Date.now() });
       el.textContent = ok ? "Saved ✓" : "Save failed";
       setTimeout(render, 1500);
@@ -385,7 +391,7 @@
   }
   function pinSummary(o) {
     const s = o.result.summary;
-    return { lid: o.lid, ...s, label: s.label, savedAt: Date.now(), url: location.pathname };
+    return { lid: o.lid, league: st.league || undefined, ...s, label: s.label, savedAt: Date.now(), url: location.pathname };
   }
   async function showPlayer(lid, pid) {
     const o = { lid, pid, loading: true };
@@ -400,7 +406,8 @@
       if (!p) throw new Error("This player isn't in the saved league data yet. Try again after the next game day.");
       if (st.outlook !== o) return;
       o.result = A.analyze(ctx, p, settings);
-      o.pinned = await S.isPinned(lid, pid);
+      const league = await ensureIdentity();
+      o.pinned = await S.isPinned(league || `lid${lid}`, pid);
       if (o.pinned) S.refreshPin(pinSummary(o));
     } catch (e) {
       o.error = e.message || String(e);
@@ -627,8 +634,27 @@
           ${settings.draftMode === "auto" ? "<div class='why'>Auto Drafter will pick automatically.</div>" : `<div class="actions"><button class="pri" data-h="${b}">Draft ${esc(best ? best.name : "")}</button></div>`}</div>`;
       } else html += `<div class="banner">Draft in progress. ${settings.draftMode === "auto" ? "Auto Drafter will pick for you when you're on the clock." : "You'll get a prompt when you're on the clock."}${settings.draftTradeUp ? " Trade-up is on." : ""}</div>`;
     } else html += `<div class="banner">Draft board for the ${L.draftSeason} class (your scouting view). Auto Drafter acts during the draft phase.</div>`;
-    html += board.length ? `<table><tr><th>#</th><th>Prospect</th><th>Age</th><th>OVR</th><th>Peak</th><th>Ceil</th><th title="BBGM's own ranking">BBGM</th></tr>${board.slice(0, 20).map((b) =>
-      `<tr><td>${b.ourRank}</td><td>${plink(b.pid, b.name)}${b.gem >= 7 ? ` <span class="chip gem">gem</span>` : ""}</td><td>${b.s.age}</td><td>${b.s.ovr}</td><td>${b.s.peakOvr}</td><td>${b.s.ceiling}</td><td class="${b.marketRank - b.ourRank >= 5 ? "good" : ""}">${b.marketRank}</td></tr>`).join("")}</table>` : `<div class="msg">No prospects yet.</div>`;
+    if (board.length) {
+      const counts = F.tierCounts(board);
+      html += `<div class="banner">Tier 1 has <b>${counts[1]}</b> similar prospect${counts[1] === 1 ? "" : "s"} left${counts[1] >= 3 ? ", so you may be able to trade down and still get one" : ""}. Ranking uses your <b>${esc(L.risk)}</b> risk preference.</div>`;
+      if (p.phase === 5 && p.onClock === p.userTid) {
+        if (st.tradeDown && st.tradeDown.key === st.pollKey) {
+          const ideas = st.tradeDown.ideas;
+          html += ideas.length ? ideas.map((d) => {
+            const go = on(async (el) => { el.disabled = true; try { const r = await F.proposeTrade(L, d.teams, `trade down ${d.slotsDown} spots`); st.flash = r && r.accepted ? "Traded down." : `Rejected: ${(r && r.message) || ""}`; } catch (e) { st.flash = e.message; } st.tradeDown = null; invalidate(); render(); });
+            return `<div class="card"><div class="hd"><b>Trade down ${d.slotsDown} spot${d.slotsDown === 1 ? "" : "s"} with ${esc(d.team)}</b><span class="chip gem">${num(d.gain, 0)} value</span></div>
+              <div class="why">You'd still likely get a tier-${d.expected.tier} prospect (for example ${plink(d.expected.pid, d.expected.name)}) and gain ${esc(d.extraGet.join(", ") || "nothing extra")}${d.extraGive.length ? `, giving up ${esc(d.extraGive.join(", "))}` : ""}.</div>
+              <div class="actions"><button class="sm pri" data-h="${go}">Propose</button></div></div>`;
+          }).join("") : `<div class="msg">No trade-down offer beats taking the best player now.</div>`;
+        } else if (counts[1] >= 3) {
+          const chk = on(async (el) => { el.disabled = true; el.textContent = "Asking teams…"; try { st.tradeDown = { key: st.pollKey, ideas: await F.tradeDownIdeas(L, settings) }; } catch (e) { st.flash = e.message; } render(); });
+          html += `<div class="actions"><button class="sm" data-h="${chk}">Check trade-down offers</button></div>`;
+        }
+      }
+      html += `<table><tr><th>#</th><th>Tier</th><th>Prospect</th><th>Age</th><th>OVR</th><th>Peak</th><th>Ceil</th><th title="BBGM's own ranking">BBGM</th></tr>${board.slice(0, 20).map((b, i) =>
+        `<tr${i > 0 && board[i - 1].tier !== b.tier ? ' style="border-top:2px solid var(--line)"' : ""}><td>${b.ourRank}</td><td><span class="chip">${b.tier}</span></td><td>${plink(b.pid, b.name)}${b.gem >= 7 ? ` <span class="chip gem">gem</span>` : ""}</td><td>${b.s.age}</td><td>${b.s.ovr}</td><td>${b.s.peakOvr}</td><td>${b.s.ceiling}</td><td class="${b.marketRank - b.ourRank >= 5 ? "good" : ""}">${b.marketRank}</td></tr>`).join("")}</table>
+        <div class="why">Tiers group prospects whose forecasts overlap with the best player in the tier; within a tier, the difference is mostly noise.</div>`;
+    } else html += `<div class="msg">No prospects yet.</div>`;
     return html;
   }
 
@@ -711,11 +737,74 @@
       }
       html += `</div>`;
     }
+    const stress = P.injuryStress(L, settings, F);
+    if (stress.length) {
+      html += `<div class="h">Injury stress test</div>`;
+      html += stress.slice(0, 3).map((x) => `<div class="card"><div class="hd"><span>If ${plink(x.pid, x.name)} misses time <small class="mut">(${esc(x.why)})</small></span><span class="chip ${x.drop >= 2 ? "over" : ""}">${num(-x.drop)} MOV</span></div>
+        <div class="why">About ${x.winsLost20.toFixed(1)} wins lost over a 20-game absence.${x.worst && x.worst.drop > 0 ? ` ${esc(x.worst.cat.label)} falls from ${ordinal(x.worst.from)} to ${ordinal(x.worst.to)}.` : ""}</div>
+        ${x.backups.length ? x.backups.map((b) => `<div class="rows"><div><span>Backup: ${plink(b.pid, b.name)} <small class="mut">${b.kind === "fa" ? `free agent · asks ${F.fmtMoney(b.ask)}` : `trade · ${esc(b.team || "")} · ${F.fmtMoney(b.salary || 0)}`}</small></span><span>OVR ${b.ovr} · recovers ${b.recover.toFixed(1)}</span></div></div>`).join("") : `<div class="why">No affordable backup found that helps.</div>`}</div>`).join("");
+    }
     html += `<div class="h">Full profile vs the league</div><table><tr><th>Area</th><th>Rank</th><th style="width:40%"></th></tr>${N.rows.map((r) => {
       const pctl = Math.max(4, Math.min(100, 100 * (1 - (r.rank - 1) / Math.max(1, r.of - 1))));
       return `<tr><td>${esc(r.label)}</td><td>${r.rank}/${r.of}</td><td><div class="bar ${r.z < -0.25 ? "weak" : ""}"><i style="width:${pctl}%"></i></div></td></tr>`;
     }).join("")}</table>
     <div class="why">Each area is a weighted average of the relevant BBGM ratings across your top 10 players, weighted like BBGM's team rating (starters count most). "+N" is how much the player would raise that area compared with your current level.${settings.respectFog ? " Other teams' players use the scouted ratings you can see." : ""}</div>`;
+    return html;
+  }
+
+  // ======================================================================
+  // Moneyball tab (value per dollar)
+  // ======================================================================
+  function moneyballBody() {
+    const wait = needL();
+    if (wait) return wait;
+    const L = st.L;
+    const A = MB.analyze(L, settings);
+    const $ = (k) => F.fmtMoney(k);
+    const askBtn = (give, getPid, tid) => on(async (el) => {
+      el.disabled = true; el.textContent = "…";
+      try {
+        await B.call("main", "createTrade", [{ tid: L.snap.userTid, pids: give, dpids: [], pidsExcluded: [], dpidsExcluded: [] }, { tid, pids: [getPid], dpids: [], pidsExcluded: [], dpidsExcluded: [] }]);
+        const r = await B.call("main", "tradeCounterOffer");
+        const { teams } = await B.readTrade();
+        st.offer = { message: r && r.message, teams, gain: teams ? LG.tradeGain(L, teams) : 0, desc: teams ? null : null };
+        if (teams) st.offer.desc = { team: (L.teams.get(tid) || {}).region || "", give: [], get: [] };
+        st.tab = "targets";
+      } catch (e) { st.flash = e.message; }
+      render();
+    });
+    const signBtn = (pid) => {
+      const fa = F.freeAgents(L).find((x) => x.pid === pid);
+      if (!fa || !fa.canSign) return "";
+      const h = on(async (el) => { el.disabled = true; try { await F.sign(L, fa, "Moneyball value pick"); st.flash = `Signed ${fa.name}.`; } catch (e) { st.flash = e.message; } invalidate(); render(); });
+      return `<button class="sm" data-h="${h}">Sign</button>`;
+    };
+    const me = A.me;
+    let html = `<div class="banner">Your payroll buys <b>${me ? me.wins.toFixed(0) : "?"}</b> projected wins at <b>${me && isFinite(me.perWin) ? $(me.perWin) : "–"}</b> per win: <b>${me ? ordinal(me.rank) : "?"}</b> most efficient of ${A.teams.length}. Everything here is measured in BBGM's team rating (MOV): 1 point ≈ ${A.winsPerMov.toFixed(1)} wins a season.</div>`;
+
+    html += `<div class="h">Moneyball swaps</div>`;
+    html += A.swaps.length ? A.swaps.map((x) => `<div class="card"><div class="hd"><span>Replace ${plink(x.out.pid, x.out.name)} <small class="mut">${$(x.out.salary)}</small> with ${plink(x.inn.pid, x.inn.name)} <small class="mut">${x.inn.kind === "fa" ? "free agent" : esc(x.inn.team || "")} · ${$(x.inn.salary)}</small></span><span class="chip gem">${num(x.net)} MOV</span></div>
+      <div class="why">${x.saves > 0 ? `Saves ${$(x.saves)} and ` : ""}adds ${num(x.net)} team rating (~${(x.net * A.winsPerMov).toFixed(1)} wins).</div>
+      <div class="actions">${x.inn.kind === "fa" ? signBtn(x.inn.pid) : `<button class="sm" data-h="${askBtn([x.out.pid], x.inn.pid, L.byPid.get(x.inn.pid).p.tid)}">Ask about a swap</button>`}</div></div>`).join("")
+      : `<div class="msg">No cheaper player clearly beats anyone on your roster right now.</div>`;
+
+    html += `<div class="h">Best value per dollar available</div>`;
+    html += A.available.length ? `<table><tr><th>Player</th><th>OVR</th><th>Salary</th><th title="Team rating added to your team">+MOV</th><th title="MOV added per $1M">/$1M</th><th></th></tr>${A.available.map((x) => `<tr><td>${plink(x.pid, x.name)}<small>${x.kind === "fa" ? "Free agent" : esc(x.team || "")} · age ${x.age}${x.futureOvr >= x.ovr + 3 ? ` · ${Math.round(x.futureOvr)} in 2 yrs` : ""}</small></td><td>${x.ovr}</td><td>${$(x.salary)}</td><td>${num(x.adds)}</td><td>${x.perM.toFixed(2)}</td>
+      <td>${x.kind === "fa" ? signBtn(x.pid) : `<button class="sm" data-h="${askBtn([], x.pid, x.v.p.tid)}">Ask</button>`}</td></tr>`).join("")}</table>` : `<div class="msg">No one available adds enough to your rotation.</div>`;
+
+    html += `<div class="h">Market inefficiencies</div><div class="why" style="margin-top:0">Where BBGM's AI valuation and the Scout model disagree. "Undervalued" groups are cheap to acquire relative to what they're worth to a team.</div>`;
+    const traitRows = (list, cls) => list.map((t) => `<tr><td>${esc(t.label)} <small>${t.n} players</small></td><td class="${cls}">${t.gap >= 0 ? "+" : ""}${t.gap.toFixed(0)} pct pts</td></tr>`).join("");
+    html += (A.undervalued.length || A.overvalued.length) ? `<table>${A.undervalued.length ? `<tr><th>Undervalued by the market</th><th></th></tr>${traitRows(A.undervalued, "good")}` : ""}${A.overvalued.length ? `<tr><th>Overvalued by the market</th><th></th></tr>${traitRows(A.overvalued, "bad")}` : ""}</table>` : `<div class="msg">The market is pricing players about right in this league.</div>`;
+
+    html += `<div class="h">Age arbitrage</div>`;
+    html += A.buy.length ? `<div class="sub"><b>Buy before the peak is priced in</b></div>${A.buy.map((x) => `<div class="rows"><div><span>${plink(x.pid, x.name)} <small class="mut">${esc(x.team || "")} · ${x.age}</small></span><span>${x.ovr} → ${x.later} in 2 yrs</span></div></div>`).join("")}` : "";
+    html += A.sell.length ? `<div class="sub" style="margin-top:6px"><b>Sell before the decline shows</b></div>${A.sell.map((x) => `<div class="rows"><div><span>${plink(x.pid, x.name)} <small class="mut">${x.age}</small></span><span>${x.ovr} → ${x.later} in 2 yrs</span></div></div>`).join("")}` : "";
+    if (!A.buy.length && !A.sell.length) html += `<div class="msg">No clear age-curve opportunities right now.</div>`;
+
+    html += `<div class="h">Your roster by value per dollar</div><table><tr><th>Player</th><th>Salary</th><th title="Team rating lost without this player">Adds</th><th title="Salary per point of team rating">$/MOV</th></tr>${A.roster.map((r) => `<tr><td>${plink(r.pid, r.name)}<small>${r.age} · OVR ${r.ovr}${r.tag ? ` · <span class="${r.tag === "Bargain" ? "good" : "bad"}">${r.tag}</span>` : ""}</small></td><td>${$(r.salary)}</td><td>${num(r.adds)}</td><td>${isFinite(r.perPoint) ? $(r.perPoint) : "–"}</td></tr>`).join("")}</table>`;
+
+    html += `<div class="h">Payroll efficiency, league-wide</div><table><tr><th>#</th><th>Team</th><th>Payroll</th><th>Proj. W</th><th>$/win</th></tr>${A.teams.map((t) => `<tr${t.tid === L.snap.userTid ? ' style="font-weight:700"' : ""}><td>${t.rank}</td><td>${esc(t.abbrev)}</td><td>${$(t.payroll)}</td><td>${t.wins.toFixed(0)}</td><td>${isFinite(t.perWin) ? $(t.perWin) : "–"}</td></tr>`).join("")}</table>
+      <div class="why">Projected wins come from each roster's team rating today. Value-per-dollar uses current salary (asking price for free agents). Protected players are never suggested as swaps.</div>`;
     return html;
   }
 
@@ -1129,11 +1218,28 @@
   // ======================================================================
   // Routing
   // ======================================================================
-  let protLid = null;
+  let protLid = null; // the league identity whose protections are loaded
+  let identityFor = null;
+  async function ensureIdentity() {
+    const lid = lidNow();
+    if (!lid || identityFor === lid) return st.league;
+    identityFor = lid;
+    await B.call("main", "idbCacheFlush", undefined, 5000).catch(() => {});
+    let fp = await S.knownLeague(lid);
+    if (!fp) { try { fp = await D.fingerprint(lid); } catch (e) { /* league not saved yet */ } }
+    if (!fp) { identityFor = null; return null; } // try again later
+    st.league = fp;
+    await S.rememberLeague(fp, lid);
+    await S.migrateLeague(lid, fp);
+    protLid = fp;
+    await P.loadProtections(fp);
+    render();
+    return fp;
+  }
   function onRoute() {
     if (location.href === lastUrl) return;
     lastUrl = location.href;
-    if (lidNow() && lidNow() !== protLid) { protLid = lidNow(); P.loadProtections(protLid).then(render); }
+    if (lidNow() && identityFor !== lidNow()) { st.league = null; ensureIdentity(); }
     hideTip();
     const m = location.pathname.match(PLAYER_RE);
     if (m) showPlayer(Number(m[1]), Number(m[2]));
@@ -1153,7 +1259,7 @@
       if (!changes.settings) return;
       const prev = settings;
       settings = await S.getSettings();
-      const modelChanged = ["nSims", "respectFog", "bustMode", "bustMargin", "bustOvr", "teamMode"].some((k) => prev[k] !== settings[k]);
+      const modelChanged = ["nSims", "respectFog", "bustMode", "bustMargin", "bustOvr", "teamMode", "riskPref"].some((k) => prev[k] !== settings[k]);
       if (modelChanged) { badgeCache.clear(); clearBadges(); invalidate(); st.trades.ideas = null; st.pending = null; }
       if (st.outlook && modelChanged) { lastUrl = ""; onRoute(); }
       render();

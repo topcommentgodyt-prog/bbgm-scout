@@ -30,10 +30,11 @@ The dock in the bottom corner of every BBGM league page has one tab per tool. Cl
 | **Trades** | Shops your players and picks to every AI team using BBGM's own trading-block AI, so every offer is one they'd accept. Ranks the offers by how much they raise your **team rating**. Refreshes every game day and grades whatever deal is on the trade screen | On |
 | **Targets** | Players on other teams worth adding. "Ask" runs BBGM's "What would make this work?" and grades the answer | On |
 | **FA** | Free agents ranked by value for the money (forecast value minus asking salary), with Sign buttons and the reason when you can't sign someone | On |
-| **Draft** | Draft board ranked by the Scout model next to BBGM's own ranking. Auto Drafter can suggest or make your pick, and can trade up when your top target won't last | Off |
+| **Draft** | Draft board ranked by the Scout model next to BBGM's own ranking, grouped into **tiers** of prospects whose forecasts overlap. **Trade-down advice** when your tier is deep: it asks teams picking later what they'd add, and suggests a deal only if a same-tier prospect should still be there. Auto Drafter can suggest or make your pick, and can trade up or down automatically | Off |
 | **Manager** | Auto Team Management and Autopilot (below), plus an activity log with Undo | Off |
-| **Needs** | Team needs scanner: your three biggest weaknesses compared with every team (outside shooting, inside scoring, ball handling & passing, perimeter defense, rim protection, rebounding, athleticism, bench depth, star power), each linked to the best trade target, free agent and draft prospect to fix it, with Ask / Sign buttons | On |
+| **Needs** | **Injury stress test** (what your team rating and skill ranks lose if your best players, top rim protector or ball handler miss time, with affordable backups) plus the team needs scanner: your three biggest weaknesses compared with every team (outside shooting, inside scoring, ball handling & passing, perimeter defense, rim protection, rebounding, athleticism, bench depth, star power), each linked to the best trade target, free agent and draft prospect to fix it, with Ask / Sign buttons | On |
 | **Plan** | The next three seasons: projected team rating and league rank, committed payroll, cap space, expiring contracts and your picks, with warnings (stars declining before prospects are ready, a closing window, a cap crunch, no first-rounders). Also where you set **Never trade / Ask first / Available** for every player and pick | On |
+| **Moneyball** | Value per dollar, in BBGM's team rating: payroll efficiency for every team, your roster by value per dollar (overpaid / bargain), the best value-per-dollar players available, **market inefficiencies** (skills, ages and builds BBGM's AI under- or over-values), age arbitrage (buy before the peak, sell before the decline), and cheaper swaps that make you better | On |
 | **Realism** | Records league-wide numbers every season (stars per team, parity, payrolls vs. the cap, max contracts, long injuries, scoring, three-point rate) and suggests God Mode / league setting tweaks as the years go on. For example: a hard cap or higher luxury tax when dynasties form, inflation when the cap never changes, a different Three Point Tendency Factor when the style drifts from the modern NBA. Suggestions only; it never changes settings | On |
 
 **Team rating and trades.** Trades are judged with BBGM's own team-rating formula: predicted margin of victory from your top 10 OVRs, where 1 point is about 2.7 wins over 82 games. The manager only makes a trade if it raises that rating:
@@ -51,6 +52,8 @@ There's no limit on how many trades it makes. Because each one has to strictly i
 - **Roster cuts:** releases the lowest-value players when the roster is over the limit.
 - **Free agents:** signs players to fill the roster, within the cap.
 - **Trades:** as described above.
+
+**Risk preference.** Conservative, Balanced or Upside, separate from the team timeline (Auto: reliable when contending, upside when rebuilding). Two players with the same expected value can carry very different risk. Conservative weights each player's 10th-percentile outcome, Upside their 90th. It affects trades, free agents, targets, the draft board and the manager.
 
 **Protected assets and contract rules.** Mark any player or pick as *Never trade* or *Ask first* (Plan tab, or the Outlook card for your own players). Protections are synced per league.
 - *Never trade:* no automated feature will trade, cut or let that asset walk, and the Trade Helper never shops it or offers it.
@@ -76,7 +79,9 @@ This is an independent re-implementation of BBGM's published mechanics for perso
 
 ## Works with any league
 
-Open any Basketball GM league in the browser and BBGM Scout attaches to it automatically. It reads the league number from the page address and the game's live state every few seconds. That includes random leagues, real-player leagues, custom and uploaded leagues, and leagues mid-season or mid-sim. Settings, pins and reports are shared across leagues; protections, the Realism history and trade timing are kept per league. Things to know:
+Open any Basketball GM league in the browser and BBGM Scout attaches to it automatically. It reads the league number from the page address and the game's live state every few seconds. That includes random leagues, real-player leagues, custom and uploaded leagues, and leagues mid-season or mid-sim. Settings, pins and reports are shared across leagues; protections, the Realism history and trade timing are kept per league.
+
+**Synced data follows the right league on every device.** BBGM numbers leagues per browser, so "league 1" on one computer can be a different league on another. BBGM Scout gives each league a fingerprint built from facts that never change and travel with an exported league file: its starting season and its first players' names and birth years. Pins, reports and protections are stored under that fingerprint. Each device remembers which local league number matches it, and pins for a league you haven't opened on a device yet are shown without a link until you do. Things to know:
 - Only leagues on play.basketball-gm.com (or beta.basketball-gm.com) in a browser where the extension is installed. It can't reach leagues on another device or in the mobile app.
 - Multi-team mode and spectator mode: the scouting tools work, but leave the Manager and Autopilot off (they assume you control one team).
 - Real-player leagues with "real player development" on are flagged as lower confidence, because real careers override BBGM's random progression.

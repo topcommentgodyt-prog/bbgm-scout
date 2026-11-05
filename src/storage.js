@@ -30,8 +30,10 @@
     panelCollapsed: false,
     panelSide: "right",
     theme: "auto", // "auto" (follow BBGM / system) | "light" | "dark"
-    teamMode: "auto", // "auto" (follow BBGM's team strategy) | "contend" | "balanced" | "rebuild"
-    features: { hover: true, assistant: true, trades: true, targets: true, freeAgents: true, drafter: false, manager: false, autopilot: false, realism: true, needs: true, plan: true },
+    teamMode: "auto",
+    riskPref: "auto", // "auto" | "conservative" | "balanced" | "upside" (separate from the timeline)
+    draftTradeDown: false, // "auto" (follow BBGM's team strategy) | "contend" | "balanced" | "rebuild"
+    features: { hover: true, assistant: true, trades: true, targets: true, freeAgents: true, drafter: false, manager: false, autopilot: false, realism: true, needs: true, plan: true, moneyball: true },
     tradeOnGameDay: true,
     tradeOnTradePage: true,
     draftMode: "suggest", // "suggest" | "auto"
@@ -96,13 +98,16 @@
     const { pins } = await get("pins");
     return Array.isArray(pins) ? pins : [];
   }
-  const pinKey = (lid, pid) => `${lid}:${pid}`;
-  async function isPinned(lid, pid) {
-    return (await getPins()).some((p) => p.key === pinKey(lid, pid));
+  // Pins, reports and protections are keyed by a league's stable identity (see data.js fingerprint),
+  // not BBGM's local league number, which can point to a different league on another device.
+  const leagueOf = (x) => x.league || `lid${x.lid}`;
+  const pinKey = (league, pid) => `${league}:${pid}`;
+  async function isPinned(league, pid) {
+    return (await getPins()).some((p) => p.key === pinKey(league, pid));
   }
   async function togglePin(summary) {
     const pins = await getPins();
-    const key = pinKey(summary.lid, summary.pid);
+    const key = pinKey(leagueOf(summary), summary.pid);
     const i = pins.findIndex((p) => p.key === key);
     if (i >= 0) pins.splice(i, 1);
     else pins.unshift({ key, ...summary });
@@ -111,7 +116,7 @@
   }
   async function refreshPin(summary) {
     const pins = await getPins();
-    const i = pins.findIndex((p) => p.key === pinKey(summary.lid, summary.pid));
+    const i = pins.findIndex((p) => p.key === pinKey(leagueOf(summary), summary.pid));
     if (i < 0) return;
     pins[i] = { ...pins[i], ...summary };
     await set({ pins });
@@ -126,17 +131,18 @@
   }
   async function saveReport(report) {
     const reports = await listReports();
-    const id = `report:${report.lid}:${report.pid}:${report.season}`;
+    const reportId = (r) => `report:${leagueOf(r)}:${r.pid}:${r.season}`;
+    const id = reportId(report);
     // Keep the newest MAX_REPORTS; drop the oldest beyond that.
-    const extra = reports.filter((r) => `report:${r.lid}:${r.pid}:${r.season}` !== id).slice(MAX_REPORTS - 1);
+    const extra = reports.filter((r) => reportId(r) !== id).slice(MAX_REPORTS - 1);
     const s = await store();
-    if (extra.length) await s.remove(extra.map((r) => `report:${r.lid}:${r.pid}:${r.season}`));
+    if (extra.length) await s.remove(extra.map(reportId));
     const note = (report.note || "").slice(0, 1500);
     return set({ [id]: { ...report, note, modelVersion: MODEL_VERSION } });
   }
   async function deleteReport(r) {
     const s = await store();
-    await s.remove(`report:${r.lid}:${r.pid}:${r.season}`);
+    await s.remove(`report:${leagueOf(r)}:${r.pid}:${r.season}`);
   }
 
   async function status() {
@@ -158,6 +164,56 @@
   const getLog = async () => (await localGet("actionLog")) || [];
   const clearLog = () => localSet("actionLog", []);
 
+  // ---- League identity: which local league number each league has on THIS device ----
+  async function rememberLeague(league, lid) {
+    const map = (await localGet("leagueMap")) || {};
+    if (map[league] !== lid) { map[league] = lid; await localSet("leagueMap", map); }
+  }
+  const leagueMap = async () => (await localGet("leagueMap")) || {};
+  /** The identity this device already knows for local league `lid`, if any. */
+  async function knownLeague(lid) {
+    const map = await leagueMap();
+    const hit = Object.entries(map).find(([, v]) => v === lid);
+    return hit ? hit[0] : null;
+  }
+  /** Local URL for a pin/report on this device, or null if that league hasn't been opened here. */
+  function localUrl(map, item) {
+    const lid = item.league ? map[item.league] : item.lid;
+    if (lid == null) return null;
+    return `/l/${lid}/player/${item.pid}`;
+  }
+  /**
+   * One-time upgrade for data saved before league identities existed: pins, reports and
+   * protections saved under local league number `lid` move to the league's identity.
+   * Runs once per local league number on each device; data that already has a league identity is untouched.
+   */
+  async function migrateLeague(lid, league) {
+    const doneKey = `migrated:${lid}`;
+    if (await localGet(doneKey)) return;
+    {
+      const pins = await getPins();
+      let changed = false;
+      for (const p of pins) if (!p.league && p.lid === lid) { p.league = league; p.key = pinKey(league, p.pid); changed = true; }
+      if (changed) await set({ pins });
+      const s = await store();
+      const all = await get(null);
+      for (const [k, r] of Object.entries(all)) {
+        if (k.startsWith("report:") && !r.league && r.lid === lid) {
+          await s.remove(k);
+          await set({ [`report:${league}:${r.pid}:${r.season}`]: { ...r, league } });
+        }
+      }
+      const oldProt = all[`protect:${lid}`];
+      if (oldProt && !all[`protect:${league}`]) { await set({ [`protect:${league}`]: oldProt }); await s.remove(`protect:${lid}`); }
+    }
+    await localSet(doneKey, true);
+  }
+  /** Remember which local league numbers this device has saved data under (for migration). */
+  async function markSaved(lid) {
+    const mine = (await localGet("savedLids")) || [];
+    if (!mine.includes(lid)) { mine.push(lid); await localSet("savedLids", mine); }
+  }
+
   function onChange(cb) {
     if (api && api.storage && api.storage.onChanged) api.storage.onChanged.addListener(cb);
   }
@@ -165,5 +221,6 @@
   root.BBGMScoutStorage = {
     MODEL_VERSION, DEFAULT_SETTINGS, getSettings, saveSettings, getPins, isPinned, togglePin, refreshPin,
     listReports, saveReport, deleteReport, status, onChange, localGet, localSet, addLog, getLog, clearLog,
+    rememberLeague, leagueMap, knownLeague, localUrl, migrateLeague, markSaved,
   };
 })(globalThis);

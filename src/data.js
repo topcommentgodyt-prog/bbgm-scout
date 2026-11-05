@@ -78,5 +78,31 @@
     }
   }
 
-  root.BBGMScoutData = { load, budgetLevel, PLAYER };
+  /**
+   * A stable identity for a league that is the same on every device (and survives export/import),
+   * unlike BBGM's local league number. Built from the league's starting season and its first
+   * players' names and birth years, which never change.
+   */
+  async function fingerprint(lid) {
+    const db = await openLeague(lid);
+    try {
+      const tx = db.transaction(["players", "gameAttributes"], "readonly");
+      const ss = await reqP(tx.objectStore("gameAttributes").get("startingSeason"));
+      const first = await new Promise((res, rej) => {
+        const out = [];
+        const c = tx.objectStore("players").openCursor();
+        c.onsuccess = () => { const cur = c.result; if (!cur || out.length >= 5) return res(out); out.push(cur.value); cur.continue(); };
+        c.onerror = () => rej(c.error);
+      });
+      if (!first.length) return null;
+      const raw = [ss ? unwrapGA(ss.value) : "", ...first.map((p) => `${p.pid}|${p.firstName}|${p.lastName}|${p.born && p.born.year}`)].join("#");
+      let h1 = 0x811c9dc5, h2 = 0x01000193;
+      for (let i = 0; i < raw.length; i++) { const c = raw.charCodeAt(i); h1 = Math.imul(h1 ^ c, 16777619) >>> 0; h2 = Math.imul(h2 + c, 2654435761) >>> 0; }
+      return `L${h1.toString(16).padStart(8, "0")}${h2.toString(16).padStart(8, "0")}`;
+    } finally {
+      db.close();
+    }
+  }
+
+  root.BBGMScoutData = { load, budgetLevel, fingerprint, PLAYER };
 })(globalThis);

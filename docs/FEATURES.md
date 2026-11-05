@@ -22,7 +22,7 @@ This document describes every feature as it exists today (v2), how each one work
   - Play menu steps: day, week, until regular season, until end of playoff round, until draft, until your next pick, until end of draft, until re-signing, until free agency, until preseason, stop.
 
   Because everything goes through BBGM's own API, the game enforces its rules (salary cap, roster limits, trade deadline, player willingness to sign), and trades and signings get entries in BBGM's undo log.
-- **The dock.** A panel in the bottom-right corner of every BBGM league page (it can move to bottom-left). It has one tab per enabled tool: Outlook, AI, Trades, Targets, FA, Draft, Manager, Needs, Plan, Realism.
+- **The dock.** A panel in the bottom-right corner of every BBGM league page (it can move to bottom-left). It has one tab per enabled tool: Outlook, AI, Trades, Targets, FA, Draft, Manager, Needs, Plan, Moneyball, Realism.
   - It opens and collapses with a "▼ Close / ▲ Open" button or by clicking the header.
   - A ◐ button cycles Auto, Light and Dark mode. Auto follows BBGM's own theme.
   - Tab labels show badges: number of trade ideas, number of pending manager suggestions, and "!" when you're on the clock in the draft.
@@ -282,6 +282,37 @@ Choose a mode: **Suggest** (a list of proposed moves, each with Do it / Skip, pl
 - **Contract rules** (Features → Auto Team Management):
   - **Longest contract** (years; 0 = no limit): free agents asking for longer deals are marked "Breaks your rules", and longer re-signings need approval.
   - **Minimum cap space to keep free** ($ millions): signings and salary-adding trades that would cut into it are skipped or flagged. A minimum contract is still allowed when the roster is below the minimum size.
+
+## 12e. Draft tiers and trade-down (Draft tab)
+
+- **Tiers:** a prospect stays in the current tier if their ceiling (90th-percentile peak) reaches the tier leader's median peak and their value is within 20% of the leader; otherwise a new tier starts. Within a tier, the differences are mostly noise. The board shows each prospect's tier, and a banner reports how many similar prospects are left in tier 1.
+- **Trade-down advice** (you're on the clock and tier 1 has 3+ players): offers your pick to teams picking within the tier's depth and runs BBGM's "What would make this work?", so the AI adds assets to balance. A deal is suggested only if a tier-1 prospect is still expected at the new slot and you gain value: expected prospect + extras received − extras given − best prospect now. "Check trade-down offers" button; optional automatic trade-down in auto mode. Respects protected picks.
+
+## 12f. Risk preference
+
+- Settings: Auto (Conservative when contending, Upside when rebuilding, Balanced otherwise), Conservative, Balanced, Upside. Separate from the team timeline.
+- The engine records each season's 10th and 90th percentile OVR. Risk-adjusted value per season = 0.6 × expected value + 0.4 × the floor (Conservative) or ceiling (Upside) value; Balanced uses the expected value. This feeds the valuations used by trades, free agents, targets, the draft board and the manager. The hidden-gem comparison stays risk-neutral.
+
+## 12g. Injury stress test (Needs tab)
+
+- Scenarios: your best player, second-best player, top rim protector and top ball handler missing time.
+- For each: the drop in team rating (MOV), roughly how many wins a 20-game absence costs, and the skill area that falls furthest in league rank.
+- Affordable backups that recover the most: free agents you can sign now (asking up to max(3 × minimum contract, 5% of the cap)) and low-salary trade targets (≤ 8% of the cap).
+
+## 12h. Moneyball tab (value per dollar)
+
+- **Payroll efficiency:** every team's projected wins (from today's team rating) and payroll per projected win, ranked; your rank in the banner.
+- **Moneyball swaps:** for your worst value-per-dollar players (not protected), the best same-or-cheaper replacement (free agent or trade target) that adds at least +0.3 team rating, with the savings. Sign or "Ask about a swap" (builds the trade and runs BBGM's "What would make this work?").
+- **Best value per dollar available:** free agents you can sign and tradeable players, ranked by team rating added to your team per $1M of salary (asking price for free agents), with 2-year growth flagged.
+- **Market inefficiencies:** compares the Scout model's percentile with BBGM's market percentile for groups of players: the top 20% in each skill area, age bands, athleticism-heavy vs skill/IQ-heavy builds. Shows which groups the market undervalues (cheap to acquire) and overvalues.
+- **Age arbitrage:** buy ages 21–25 projected to gain 3+ OVR in two years that the market undervalues; sell your 28+ players projected to lose 2+ OVR that the market still overvalues.
+- **Your roster by value per dollar:** team rating each player adds, salary per point of team rating, Overpaid/Bargain tags.
+
+## 12i. League identity for synced data
+
+- Each league gets a fingerprint (starting season plus the first players' IDs, names and birth years), the same on every device and after export/import. Pins, reports and protections are stored under it. Each device keeps a local map from fingerprint to its own league number for links.
+- A device reuses the fingerprint it already knows for a league, so the identity stays stable even after deleting old data.
+- Data saved before this change moves to the fingerprint the first time that league is opened.
 
 ## 13. Popup and settings
 

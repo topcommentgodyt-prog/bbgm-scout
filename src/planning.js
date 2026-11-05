@@ -16,7 +16,7 @@
   // Synced per league: { players: { pid: level }, picks: { dpid: level } }, level = "never" | "ask" (absent = available)
   const LEVELS = { available: "Available", ask: "Ask first", never: "Never trade" };
   let cache = { lid: null, players: {}, picks: {} };
-  const keyFor = (lid) => `protect:${lid}`;
+  const keyFor = (league) => `protect:${league}`; // league = stable league identity (data.js fingerprint)
   async function loadProtections(lid) {
     const api = root.chrome || root.browser;
     let v = {};
@@ -149,6 +149,65 @@
     return { rows, weaknesses: weaknesses.map((w) => ({ ...w, fixes: fixesFor(w) })), strengths };
   }
 
+  // ======================= Injury stress test =======================
+  /**
+   * What happens to the team if a key player misses time: team rating (MOV) drop and the skill area
+   * that falls the most in league rank, plus affordable backups that recover the most.
+   */
+  function injuryStress(L, settings, F) {
+    const mineAll = rotation(L, L.snap.userTid);
+    if (mineAll.length < 6) return [];
+    const ovrsOf = (list) => list.map((v) => v.summary.ovr);
+    const base = LG.teamMov(ovrsOf(mineAll));
+    const others = L.snap.teams.filter((t) => t.tid !== L.snap.userTid).map((t) => teamProfile(L, t.tid).scores);
+    const profileOf = (list) => {
+      const out = {};
+      for (const c of CATS) { let s = 0, w = 0; list.slice(0, 10).forEach((v, i) => { s += MOV_W[i] * catScore(c, shownRatings(L, v)); w += MOV_W[i]; }); out[c.id] = w ? s / w : 0; }
+      return out;
+    };
+    const rankIn = (id, val) => 1 + others.filter((o) => o[id] > val).length;
+    const baseProf = profileOf(mineAll);
+    const leaders = new Map();
+    const add = (v, why) => v && !leaders.has(v.p.pid) && leaders.set(v.p.pid, { v, why });
+    const by = (id) => [...mineAll].sort((a, b) => catScore(CATS.find((c) => c.id === id), shownRatings(L, b)) - catScore(CATS.find((c) => c.id === id), shownRatings(L, a)))[0];
+    add(mineAll[0], "your best player");
+    add(mineAll[1], "your second-best player");
+    add(by("rimD"), "your top rim protector");
+    add(by("playmaking"), "your top ball handler");
+
+    // Affordable backups: free agents you can sign now (cheap first) and low-salary trade targets.
+    const cap = L.capInfo.cap || 100000;
+    const cheapFA = F.freeAgents(L).filter((f) => f.canSign && f.ask <= Math.max(L.capInfo.minContract * 3, cap * 0.05) && !contractRuleBreak(L, settings, { amount: f.ask, exp: f.exp }))
+      .map((f) => ({ v: L.byPid.get(f.pid), kind: "fa", ask: f.ask })).filter((x) => x.v);
+    const cheapTrade = [...L.byPid.values()].filter((v) => v.p.tid >= 0 && v.p.tid !== L.snap.userTid && !v.p.untradable && v.p.contract && v.p.contract.amount <= cap * 0.08 && v.surplus > 0)
+      .map((v) => ({ v, kind: "trade" }));
+
+    const out = [];
+    for (const { v, why } of leaders.values()) {
+      // The 11th man steps in: use the full roster minus the injured player.
+      const roster = L.snap.players.filter((p) => p.tid === L.snap.userTid && p.pid !== v.p.pid).map((p) => L.byPid.get(p.pid)).filter(Boolean)
+        .filter((x) => !(x.p.injury && x.p.injury.gamesRemaining > 20)).sort((a, b) => b.summary.ovr - a.summary.ovr);
+      const mov = LG.teamMov(ovrsOf(roster));
+      const prof = profileOf(roster);
+      let worst = null;
+      for (const c of CATS) {
+        const r0 = rankIn(c.id, baseProf[c.id]), r1 = rankIn(c.id, prof[c.id]);
+        if (!worst || r1 - r0 > worst.drop || (r1 - r0 === worst.drop && baseProf[c.id] - prof[c.id] > worst.delta)) worst = { cat: c, from: r0, to: r1, drop: r1 - r0, delta: baseProf[c.id] - prof[c.id] };
+      }
+      const fill = [...cheapFA, ...cheapTrade].map((x) => {
+        const withB = [...roster, x.v].sort((a, b) => b.summary.ovr - a.summary.ovr);
+        const recover = LG.teamMov(ovrsOf(withB)) - mov;
+        const catBack = worst ? profileOf(withB)[worst.cat.id] - prof[worst.cat.id] : 0;
+        return { ...x, recover, catBack, score: recover + 0.15 * catBack };
+      }).filter((x) => x.recover > 0.05 || x.catBack > 0.5).sort((a, b) => b.score - a.score || (a.kind === "fa" ? -1 : 1));
+      // ~0.033 win% per point of MOV, so a 20-game absence costs about drop × 0.66 wins.
+      out.push({ pid: v.p.pid, name: v.summary.name, why, drop: base - mov, winsLost20: (base - mov) * 0.033 * 20, worst,
+        backups: fill.slice(0, 2).map((x) => ({ pid: x.v.p.pid, name: x.v.summary.name, kind: x.kind, ovr: x.v.summary.ovr, recover: x.recover, ask: x.ask,
+          team: (L.teams.get(x.v.p.tid) || {}).abbrev, salary: x.v.p.contract ? x.v.p.contract.amount : null })) });
+    }
+    return out.sort((a, b) => b.drop - a.drop);
+  }
+
   // ======================= Three-season view =======================
   function threeSeasons(L) {
     const snap = L.snap, ga = snap.ga || {};
@@ -211,6 +270,6 @@
 
   root.BBGMScoutPlanning = {
     LEVELS, loadProtections, setProtection, playerLevel, pickLevel, assetsLevel, protectedNames,
-    contractYears, contractRuleBreak, tradePayrollDelta, teamNeeds, threeSeasons, CATS,
+    contractYears, contractRuleBreak, tradePayrollDelta, teamNeeds, threeSeasons, injuryStress, CATS, shownRatings, catScore,
   };
 })(globalThis);

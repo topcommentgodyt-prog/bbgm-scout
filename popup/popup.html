@@ -78,6 +78,7 @@
       <div class="sub" data-show="features.drafter">
         <label>When you're on the clock <select data-k="draftMode"><option value="suggest">Suggest the pick</option><option value="auto">Pick automatically</option></select></label>
         <label class="row"><input type="checkbox" data-k="draftTradeUp"> Trade up when my top target won't last (auto mode)</label>
+        <label class="row"><input type="checkbox" data-k="draftTradeDown"> Trade down when my tier is deep and a team adds value (auto mode)</label>
       </div>
     </div>
 
@@ -130,6 +131,11 @@
     </div>
 
     <div class="feat">
+      <label class="sw"><input type="checkbox" data-k="features.moneyball"> <b>Moneyball</b></label>
+      <p class="hint">Value per dollar, measured in BBGM's team rating: payroll efficiency for every team, your roster by value per dollar, the best bargains available, market inefficiencies (skills, ages and builds BBGM's AI under- or over-values), age arbitrage, and cheaper swaps that make you better.</p>
+    </div>
+
+    <div class="feat">
       <label class="sw"><input type="checkbox" data-k="features.realism"> <b>Realism advisor</b></label>
       <p class="hint">Tracks your league season by season (stars, parity, payrolls, injuries, scoring, three-point rate) and suggests God Mode / league setting tweaks to keep it realistic as the years go on. Suggestions only.</p>
     </div>
@@ -137,6 +143,10 @@
     <label>Team timeline (used by every tool)
       <select data-k="teamMode"><option value="auto">Follow BBGM's team strategy</option><option value="contend">Contend (win now)</option><option value="balanced">Balanced</option><option value="rebuild">Rebuild (future value)</option></select>
     </label>
+    <label>Risk preference (separate from the timeline)
+      <select data-k="riskPref"><option value="auto">Auto: reliable when contending, upside when rebuilding</option><option value="conservative">Conservative: favour reliable outcomes</option><option value="balanced">Balanced: expected value</option><option value="upside">Upside: favour high ceilings</option></select>
+    </label>
+    <p class="hint">Two players with the same expected value can carry very different risk. Conservative weights each player's 10th-percentile outcome, Upside their 90th. This affects trades, free agents, targets, the draft board and the manager.</p>
   </section>
 
   <section id="settings" hidden>

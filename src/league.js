@@ -45,6 +45,9 @@
     let mode = settings.teamMode || "auto";
     if (mode === "auto") mode = user && user.strategy === "rebuilding" ? "rebuild" : user && user.strategy === "contending" ? "contend" : "balanced";
     const d = DISCOUNT[mode] || 0.75;
+    // Risk preference is separate from the timeline. "auto": contenders favour reliability, rebuilders upside.
+    let risk = settings.riskPref || "auto";
+    if (risk === "auto") risk = mode === "contend" ? "conservative" : mode === "rebuild" ? "upside" : "balanced";
     const dDraft = Math.max(d, 0.85);
     const maxContract = ga.maxContract || 50000;
 
@@ -63,12 +66,16 @@
         fcCache.set(key, res);
       }
       const path = res.fc.meanPath;
-      const disc = (dd) => path.slice(0, YEARS).reduce((s, x, y) => s + x.w * Math.pow(dd, y), 0);
+      // Risk preference blends the average outcome with the floor (conservative) or ceiling (upside).
+      const wOf = (x) => (risk === "conservative" ? 0.6 * x.w + 0.4 * x.wLo : risk === "upside" ? 0.6 * x.w + 0.4 * x.wHi : x.w);
+      const disc = (dd, neutral) => path.slice(0, YEARS).reduce((s, x, y) => s + (neutral ? x.w : wOf(x)) * Math.pow(dd, y), 0);
       const prospect = p.tid === PL.UNDRAFTED || p.tid === PL.UNDRAFTED_2 || p.tid === PL.UNDRAFTED_3;
       const talent = prospect ? disc(dDraft) : disc(d);
       byPid.set(p.pid, {
         p, summary: res.summary, fc: res.fc, fog: res.fog, prospect,
-        talent, talentBal: disc(0.75), draftTalent: disc(dDraft),
+        talent, talentBal: disc(0.75, true), draftTalent: disc(dDraft), draftTalentNeutral: disc(dDraft, true),
+        floor: path.slice(0, YEARS).reduce((s, x, y) => s + x.wLo * Math.pow(dDraft, y), 0),
+        upside: path.slice(0, YEARS).reduce((s, x, y) => s + x.wHi * Math.pow(dDraft, y), 0),
         market: (p.tid === snap.userTid || !settings.respectFog ? p.value : p.valueFuzz) || 0,
       });
       if (++i % 40 === 0) { onProgress && onProgress(i / snap.players.length); await yieldUI(); }
@@ -139,7 +146,7 @@
       pids.reduce((s, pid) => s + valueOf(pid), 0) +
       dpids.reduce((s, dpid) => { const dp = snap.draftPicks.find((x) => x.dpid === dpid); return s + (dp ? pickValue(dp) : 0); }, 0);
 
-    return { snap, settings, byPid, mode, d, teams, user, capInfo, pickValue, assetValue, roster, draftSeason, PH, PL, costOf };
+    return { snap, settings, byPid, mode, risk, d, teams, user, capInfo, pickValue, assetValue, roster, draftSeason, PH, PL, costOf };
   }
 
   /** BBGM's team rating: predicted margin of victory from the top 10 OVRs (regular-season weights). */

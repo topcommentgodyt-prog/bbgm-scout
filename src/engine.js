@@ -174,6 +174,7 @@
     const peaks = [], peakAges = [], nextDeltas = [], startOvrs = [];
     const pathSum = new Array(years + 1).fill(0);
     const wSum = new Array(years + 1).fill(0);
+    const byYear = Array.from({ length: years + 1 }, () => []); // every simulated OVR, per season
 
     for (let s = 0; s < nSims; s++) {
       const r = { ...seen };
@@ -187,11 +188,13 @@
       let best = o0, bestAge = age0;
       pathSum[0] += o0;
       wSum[0] += winValue(o0);
+      byYear[0].push(o0);
       for (let y = 1; y <= years; y++) {
         if (!opts.locked) developSeason(r, age0 + y, coach, rng);
         const o = ovr(r);
         pathSum[y] += o;
         wSum[y] += winValue(o);
+        byYear[y].push(o);
         if (y === 1) nextDeltas.push(o - o0);
         if (o > best) { best = o; bestAge = age0 + y; }
       }
@@ -218,7 +221,12 @@
       expectedNextDelta: mean(nextDeltas),
       bust: Number.isFinite(thr) ? frac(peaks, (p) => p < thr) : null,
       bustThreshold: thr,
-      meanPath: pathSum.map((x, i) => ({ age: age0 + i, ovr: x / nSims, w: wSum[i] / nSims })),
+      meanPath: pathSum.map((x, i) => {
+        const sorted = byYear[i].sort((a, b) => a - b);
+        const lo = quantile(sorted, 0.1), hi = quantile(sorted, 0.9);
+        // wLo / wHi: on-court value at the 10th / 90th percentile outcome (used by the risk preference)
+        return { age: age0 + i, ovr: x / nSims, w: wSum[i] / nSims, lo, hi, wLo: winValue(lo), wHi: winValue(hi) };
+      }),
     };
   }
 

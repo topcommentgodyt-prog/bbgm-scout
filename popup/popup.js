@@ -40,6 +40,7 @@
 
   async function renderPins() {
     const pins = await S.getPins();
+    const map = await S.leagueMap();
     $("pinsEmpty").hidden = pins.length > 0;
     $("pinTable").hidden = pins.length === 0;
     const best = (k) => Math.max(...pins.map((p) => p[k] ?? -Infinity));
@@ -47,7 +48,7 @@
     const bBust = Math.min(...pins.map((p) => p.bust ?? Infinity));
     $("pinTable").querySelector("tbody").innerHTML = pins.map((p, i) => `
       <tr>
-        <td><a class="go" href="${BBGM}${esc(p.url)}">${esc(p.name)}</a><small>${esc(p.label || "")} · ${p.season} · L${p.lid} · ${ago(p.savedAt)}</small></td>
+        <td>${S.localUrl(map, p) ? `<a class="go" href="${BBGM}${esc(S.localUrl(map, p))}">${esc(p.name)}</a>` : `<span title="Open this league in BBGM on this device once to link it">${esc(p.name)}</span>`}<small>${esc(p.label || "")} · ${p.season} · ${ago(p.savedAt)}${S.localUrl(map, p) ? "" : " · league not opened on this device yet"}</small></td>
         <td>${p.age}</td><td>${p.ovr}</td>
         <td class="${pins.length > 1 && p.peakOvr === bPeak ? "best" : ""}">${p.peakOvr}</td>
         <td class="${pins.length > 1 && p.ceiling === bCeil ? "best" : ""}">${p.ceiling}</td>
@@ -64,10 +65,11 @@
 
   async function renderReports() {
     const reps = await S.listReports();
+    const map = await S.leagueMap();
     $("reportsEmpty").hidden = reps.length > 0;
     $("reportList").innerHTML = reps.map((r, i) => `
       <li>
-        <div class="top"><a class="go" href="${BBGM}${esc(r.url)}"><b>${esc(r.name)}</b></a><button class="x" data-i="${i}" title="Delete">×</button></div>
+        <div class="top">${S.localUrl(map, r) ? `<a class="go" href="${BBGM}${esc(S.localUrl(map, r))}"><b>${esc(r.name)}</b></a>` : `<b title="Open this league in BBGM on this device once to link it">${esc(r.name)}</b>`}<button class="x" data-i="${i}" title="Delete">×</button></div>
         <div class="meta">${r.season} · age ${r.age} · OVR ${r.ovr}/${r.pot} → peak ${r.peakOvr} @ ${r.peakAge}, ceiling ${r.ceiling} · breakout ${pct(r.breakout)} · bust ${pct(r.bust)} · ${esc(r.trend || "")} · ${esc(r.confidence || "")} confidence · ${new Date(r.savedAt).toLocaleDateString()}</div>
         ${r.note ? `<div class="note">${esc(r.note)}</div>` : ""}
       </li>`).join("");

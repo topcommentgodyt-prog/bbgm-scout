@@ -114,7 +114,7 @@
     const r = await B.call("main", "proposeTrade", false);
     const d = describeTrade(L, teams);
     if (r && r.accepted) {
-      await S.addLog({ kind: "trade", text: `Traded ${d.give.join(", ") || "nothing"} to ${d.team} for ${d.get.join(", ") || "nothing"}${why ? ` (${why})` : ""}`, undoKey: r.undoKey });
+      await S.addLog({ kind: "trade", text: `Traded ${d.give.join(", ") || "nothing"} to ${d.team} for ${d.get.join(", ") || "nothing"}${why ? ` (${why})` : ""}`, undoKey: r.undoKey, pids: [...teams[0].pids, ...teams[1].pids] });
     } else {
       await B.call("main", "clearTrade", "all").catch(() => {});
     }
@@ -125,7 +125,7 @@
     const { teams } = await B.readTrade();
     if (!teams || (!teams[0].pids.length && !teams[0].dpids.length && !teams[1].pids.length && !teams[1].dpids.length)) return null;
     const rows = (t, sign) => [
-      ...t.pids.map((pid) => ({ label: LG.name(L, pid), value: sign * (L.byPid.get(pid) ? L.byPid.get(pid).surplus : 0) })),
+      ...t.pids.map((pid) => ({ pid, label: LG.name(L, pid), value: sign * (L.byPid.get(pid) ? L.byPid.get(pid).surplus : 0) })),
       ...t.dpids.map((dpid) => { const dp = L.snap.draftPicks.find((x) => x.dpid === dpid); return { label: LG.pickName(L, dpid), value: sign * (dp ? L.pickValue(dp) : 0) }; }),
     ];
     return { teams, gain: LG.tradeGain(L, teams), get: rows(teams[1], 1), give: rows(teams[0], -1), desc: describeTrade(L, teams) };
@@ -176,7 +176,7 @@
   async function sign(L, fa, why) {
     const r = await B.call("main", "acceptContractNegotiation", { pid: fa.pid, amount: fa.ask, exp: fa.exp });
     if (typeof r === "string") throw new Error(r.replace(/<[^>]+>/g, ""));
-    await S.addLog({ kind: "sign", text: `Signed ${fa.name} (${fmtMoney(fa.ask)} through ${fa.exp})${why ? ` (${why})` : ""}`, undoKey: typeof r === "number" ? r : undefined });
+    await S.addLog({ kind: "sign", text: `Signed ${fa.name} (${fmtMoney(fa.ask)} through ${fa.exp})${why ? ` (${why})` : ""}`, undoKey: typeof r === "number" ? r : undefined, pids: [fa.pid] });
     return r;
   }
 
@@ -200,7 +200,7 @@
     if (order[0].tid === L.snap.userTid) {
       if (!act) return { state: "onClock", best, board };
       await B.call("main", "draftUser", best.pid);
-      await S.addLog({ kind: "draft", text: `Drafted ${best.name} with pick ${order[0].round}-${order[0].pick} (Scout #${best.ourRank}, BBGM #${best.marketRank}; peak ${best.s.peakOvr}, ceiling ${best.s.ceiling})` });
+      await S.addLog({ kind: "draft", text: `Drafted ${best.name} with pick ${order[0].round}-${order[0].pick} (Scout #${best.ourRank}, BBGM #${best.marketRank}; peak ${best.s.peakOvr}, ceiling ${best.s.ceiling})`, pids: [best.pid] });
       return { state: "picked", best };
     }
     const nextIdx = order.findIndex((dp) => dp.tid === L.snap.userTid);
@@ -217,7 +217,7 @@
           const r = await proposeTrade(L, teams, `trade up for ${best.name}`);
           if (r && r.accepted) {
             await B.call("main", "draftUser", best.pid);
-            await S.addLog({ kind: "draft", text: `Traded up and drafted ${best.name}` });
+            await S.addLog({ kind: "draft", text: `Traded up and drafted ${best.name}`, pids: [best.pid] });
             return { state: "tradedUp", best };
           }
         } else {
@@ -264,7 +264,7 @@
     const m = settings.manage;
     const phase = L.snap.phase;
     const u = L.user;
-    const push = (kind, text, run) => acts.push({ kind, text, run });
+    const push = (kind, text, run, pids = []) => acts.push({ kind, text, run, pids });
 
     if (m.finances && L.snap.ga.budget !== false && u && u.budget) {
       const want = FIN[settings.financeStyle] || FIN.balanced;
@@ -280,7 +280,7 @@
     }
     if (m.minutes && (phase === PH.REGULAR_SEASON || phase === PH.AFTER_TRADE_DEADLINE || phase === PH.PLAYOFFS || phase === PH.PRESEASON)) {
       for (const x of minutesPlan(L, settings)) {
-        push("minutes", `${LG.name(L, x.v.p.pid)}: ${PT[x.pt]} (${x.why})`, () => B.call("main", "updatePlayingTime", { pid: x.v.p.pid, ptModifier: x.pt }));
+        push("minutes", `${LG.name(L, x.v.p.pid)}: ${PT[x.pt]} (${x.why})`, () => B.call("main", "updatePlayingTime", { pid: x.v.p.pid, ptModifier: x.pt }), [x.v.p.pid]);
       }
     }
     if (m.resign && phase === PH.RESIGN_PLAYERS) {
@@ -294,9 +294,9 @@
             const r = await B.call("main", "acceptContractNegotiation", { pid, amount: ask, exp });
             if (typeof r === "string") throw new Error(r.replace(/<[^>]+>/g, ""));
             return r;
-          });
+          }, [pid]);
         } else {
-          push("letwalk", `Let ${LG.name(L, pid)} walk (${v.p.mood.willing ? `asking ${fmtMoney(ask)} more than the player is worth to you` : "unwilling to re-sign"})`, () => B.call("main", "cancelContractNegotiation", pid));
+          push("letwalk", `Let ${LG.name(L, pid)} walk (${v.p.mood.willing ? `asking ${fmtMoney(ask)} more than the player is worth to you` : "unwilling to re-sign"})`, () => B.call("main", "cancelContractNegotiation", pid), [pid]);
         }
       }
     }
@@ -305,7 +305,7 @@
       const mine = L.roster(L.snap.userTid).map((p) => L.byPid.get(p.pid)).filter(Boolean);
       // Cheapest to cut = lowest value, counting the salary you'd still owe.
       const cut = mine.map((v) => ({ v, score: v.talent - 0.3 * v.cost })).sort((a, b) => a.score - b.score).slice(0, extra);
-      for (const { v } of cut) push("release", `Release ${LG.name(L, v.p.pid)} (lowest value on an over-full roster)`, () => B.call("main", "releasePlayer", { pids: [v.p.pid] }));
+      for (const { v } of cut) push("release", `Release ${LG.name(L, v.p.pid)} (lowest value on an over-full roster)`, () => B.call("main", "releasePlayer", { pids: [v.p.pid] }), [v.p.pid]);
     }
     if (m.signings && signingAllowed(phase)) {
       let size = L.capInfo.rosterSize;
@@ -315,7 +315,7 @@
         if (size >= target && !(fa.surplus > 8 && size < L.capInfo.maxRoster)) continue;
         if (!fa.canSign || (fa.surplus <= 0 && size >= L.capInfo.minRoster)) continue;
         if (L.capInfo.type !== "none" && payroll + fa.ask > L.capInfo.cap && fa.ask > L.capInfo.minContract + 1) continue;
-        push("sign", `Sign ${fa.name} (OVR ${fa.s.ovr}, ${fmtMoney(fa.ask)} through ${fa.exp}, value +${fa.surplus.toFixed(1)})`, () => sign(L, fa));
+        push("sign", `Sign ${fa.name} (OVR ${fa.s.ovr}, ${fmtMoney(fa.ask)} through ${fa.exp}, value +${fa.surplus.toFixed(1)})`, () => sign(L, fa), [fa.pid]);
         size++; payroll += fa.ask;
         if (acts.filter((a) => a.kind === "sign").length >= 3) break;
       }
@@ -329,7 +329,7 @@
           const r = await proposeTrade(L, best.teams, why);
           if (!r || !r.accepted) throw new Error((r && r.message) || "Trade rejected");
           return r;
-        });
+        }, [...best.teams[0].pids, ...best.teams[1].pids]);
       }
     }
     return acts;
@@ -358,10 +358,10 @@
     for (const a of acts) {
       try {
         const r = await a.run();
-        if (a.kind !== "trade" && a.kind !== "sign") await S.addLog({ kind: a.kind, text: a.text, undoKey: typeof r === "number" ? r : undefined });
+        if (a.kind !== "trade" && a.kind !== "sign") await S.addLog({ kind: a.kind, text: a.text, pids: a.pids, undoKey: typeof r === "number" ? r : undefined });
         results.push({ a, ok: true });
       } catch (e) {
-        await S.addLog({ kind: "error", text: `${a.text} failed: ${e.message}` });
+        await S.addLog({ kind: "error", text: `${a.text} failed: ${e.message}`, pids: a.pids });
         results.push({ a, ok: false, error: e.message });
       }
     }

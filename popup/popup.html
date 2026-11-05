@@ -9,6 +9,7 @@
   <header>
     <b>BBGM Scout</b>
     <span id="sync" class="sync"><span class="dot"></span><span id="syncText">…</span></span>
+    <button id="themeBtn" class="themebtn" title="Switch light or dark mode">◐ Auto</button>
   </header>
   <nav>
     <button data-tab="pins" class="active">Pinned</button>
@@ -33,6 +34,11 @@
 
   <section id="features" hidden>
     <p class="hint">Turn each tool on or off. Tools that act on your league use BBGM's own actions, follow the game's rules, and log what they did (with Undo where BBGM allows it).</p>
+
+    <div class="feat">
+      <label class="sw"><input type="checkbox" data-k="features.hover"> <b>Hover cards</b></label>
+      <p class="hint">Hover over any player's name in BBGM to see their outlook, hidden-gem verdict, value to your team and contract.</p>
+    </div>
 
     <div class="feat">
       <label class="sw"><input type="checkbox" data-k="features.assistant"> <b>AI Assistant</b></label>
@@ -110,6 +116,11 @@
       </div>
     </div>
 
+    <div class="feat">
+      <label class="sw"><input type="checkbox" data-k="features.realism"> <b>Realism advisor</b></label>
+      <p class="hint">Tracks your league season by season (stars, parity, payrolls, injuries, scoring, three-point rate) and suggests God Mode / league setting tweaks to keep it realistic as the years go on. Suggestions only.</p>
+    </div>
+
     <label>Team timeline (used by every tool)
       <select data-k="teamMode"><option value="auto">Follow BBGM's team strategy</option><option value="contend">Contend (win now)</option><option value="balanced">Balanced</option><option value="rebuild">Rebuild (future value)</option></select>
     </label>
@@ -127,6 +138,9 @@
     <label id="ovrWrap">OVR <input type="number" id="bustOvr" min="30" max="80"></label>
     <label>Inline peak badges
       <select id="badges"><option value="off">Off</option><option value="draft">Draft pages only</option><option value="everywhere">All league pages</option></select>
+    </label>
+    <label>Theme
+      <select data-k="theme"><option value="auto">Auto (follow BBGM / system)</option><option value="light">Light</option><option value="dark">Dark</option></select>
     </label>
     <label>Panel position
       <select id="panelSide"><option value="right">Bottom right</option><option value="left">Bottom left</option></select>

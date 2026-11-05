@@ -10,6 +10,7 @@
   const B = globalThis.BBGMScoutBridge;
   const LG = globalThis.BBGMScoutLeague;
   const F = globalThis.BBGMScoutFeatures;
+  const R = globalThis.BBGMScoutRealism;
   const ext = globalThis.chrome || globalThis.browser;
 
   const PLAYER_RE = /\/l\/(\d+)\/player\/(\d+)/;
@@ -26,9 +27,29 @@
   const num = (x, d = 1) => (x >= 0 ? "+" : "") + x.toFixed(d);
   const lidNow = () => { const m = location.pathname.match(LEAGUE_RE); return m ? Number(m[1]) : null; };
   const pidNow = () => { const m = location.pathname.match(PLAYER_RE); return m ? Number(m[2]) : null; };
-  const plink = (pid, label) => `<a href="/l/${lidNow()}/player/${pid}">${esc(label)}</a>`;
+  const plink = (pid, label) => `<a class="pl" href="/l/${lidNow()}/player/${pid}" title="Open player page">${esc(label)}</a>`;
+  /** Escape `text`, turning the names of the given players into profile links. */
+  function linkText(text, pids) {
+    let html = esc(text);
+    for (const pid of pids || []) {
+      const name = st.L ? LG.name(st.L, pid) : null;
+      if (name && !name.startsWith("#")) html = html.replace(esc(name), plink(pid, name));
+    }
+    return html;
+  }
+  /** Go to a BBGM page in this tab, letting BBGM's own router handle it (no reload, never a new tab). */
+  function goTo(href) {
+    const a = document.createElement("a");
+    a.href = href;
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
 
   function isDark() {
+    if (settings.theme === "dark") return true;
+    if (settings.theme === "light") return false;
     const t = document.documentElement.getAttribute("data-bs-theme") || document.body.getAttribute("data-bs-theme");
     if (t) return t === "dark";
     return window.matchMedia("(prefers-color-scheme: dark)").matches;
@@ -57,6 +78,8 @@
   let hid = 0;
   const on = (fn) => { const id = `h${++hid}`; handlers.set(id, fn); return id; };
 
+  const THEME_ICON = { auto: "◐ Auto", light: "☀ Light", dark: "☾ Dark" };
+  const THEME_LABEL = { auto: "Auto (follows BBGM)", light: "Light", dark: "Dark" };
   const TABS = [
     ["outlook", "Outlook", () => true],
     ["assistant", "AI", () => settings.features.assistant],
@@ -65,6 +88,7 @@
     ["fa", "FA", () => settings.features.freeAgents],
     ["draft", "Draft", () => settings.features.drafter],
     ["manager", "Manager", () => settings.features.manager || settings.features.autopilot],
+    ["realism", "Realism", () => settings.features.realism],
   ];
   const needsBridge = () => TABS.slice(1).some(([, , en]) => en());
 
@@ -81,6 +105,7 @@
       const snap = await B.snapshot();
       const L = await LG.build(snap, settings, (f) => { st.buildMsg = `Analyzing players… ${Math.round(f * 100)}%`; render(); });
       st.L = L; st.LKey = k;
+      if (settings.features.realism) refreshRealism(L).then(() => { if (st.tab === "realism") render(); });
       return L;
     })();
     try { return await st.building; } finally { st.building = null; st.buildMsg = ""; }
@@ -96,7 +121,17 @@
     host = document.createElement("div");
     host.id = "bbgm-scout-host";
     shadow = host.attachShadow({ mode: "open" });
+    const linkClick = (e) => {
+      const pl = e.target.closest("a.pl");
+      if (!pl) return false;
+      e.preventDefault();
+      e.stopPropagation();
+      goTo(pl.getAttribute("href"));
+      return true;
+    };
+    shadow.addEventListener("auxclick", (e) => { if (e.button === 1) linkClick(e); });
     shadow.addEventListener("click", async (e) => {
+      if (linkClick(e)) return;
       const el = e.target.closest("[data-h]");
       if (!el) return;
       const fn = handlers.get(el.dataset.h);
@@ -117,11 +152,14 @@
   .wrap.dark { --bg:#1b1f27; --fg:#e7e9ee; --mut:#98a2b3; --line:#2f3542; --chip:#262b36; --acc:#6f9bff; --good:#4cc38a; --bad:#ff7a66; --warn:#f5b04c; }
   .wrap.right { right: 16px; } .wrap.left { left: 16px; }
   a { color: var(--acc); text-decoration: none; } a:hover { text-decoration: underline; }
+  a.pl { color: inherit; text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 28%, transparent); text-underline-offset: 2px; text-decoration-thickness: 1px; }
+  a.pl:hover { color: var(--acc); text-decoration-color: currentColor; }
   header { display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid var(--line); cursor:pointer; user-select:none; flex:none; }
   header b { font-size:13px; }
   .sync { margin-left:auto; font-size:11px; color:var(--mut); display:flex; align-items:center; gap:4px; }
   .dot { width:7px; height:7px; border-radius:50%; background:var(--good); } .dot.local { background:var(--warn); } .dot.error { background:var(--bad); }
-  .caret { color:var(--mut); font-size:11px; }
+  .caret { color:var(--mut); font-size:11px; padding:1px 7px; }
+  header .theme { padding:1px 7px; font-size:11px; color:var(--mut); }
   nav { display:flex; flex-wrap:wrap; gap:0 1px; padding:4px 6px 0; border-bottom:1px solid var(--line); flex:none; }
   nav button { border:0; background:none; color:var(--mut); font:inherit; font-size:12px; padding:5px 7px; cursor:pointer; border-bottom:2px solid transparent; white-space:nowrap; border-radius:0; flex:none; }
   nav button.active { color:var(--fg); border-color:var(--acc); }
@@ -191,6 +229,12 @@
     const sync = await S.status();
     const tabs = TABS.filter(([, , en]) => en());
     if (!tabs.some(([id]) => id === st.tab)) st.tab = pidNow() ? "outlook" : tabs[tabs.length > 1 ? 1 : 0][0];
+    const themeBtn = on(async () => {
+      const next = { auto: "light", light: "dark", dark: "auto" }[settings.theme] || "light";
+      settings.theme = next;
+      await S.saveSettings({ theme: next });
+      render();
+    });
     const hdr = on(async () => { settings.panelCollapsed = !settings.panelCollapsed; await S.saveSettings({ panelCollapsed: settings.panelCollapsed }); render(); });
     const nav = tabs.length > 1 ? `<nav>${tabs.map(([id, label]) => {
       const n = tabCount(id);
@@ -200,7 +244,7 @@
     try { body = bodyFor(st.tab); } catch (e) { body = `<div class="msg">${esc(e.message)}</div>`; }
     shadow.innerHTML = `<style>${CSS}</style>
       <div class="wrap ${settings.panelSide === "left" ? "left" : "right"}${isDark() ? " dark" : ""}${settings.panelCollapsed ? " collapsed" : ""}">
-        <header data-h="${hdr}"><b>BBGM Scout</b>${st.ap.running ? `<span class="chip">Autopilot</span>` : ""}<span class="sync" title="${esc(sync.detail)}"><span class="dot ${sync.mode}"></span>${esc(sync.text)}</span><span class="caret">${settings.panelCollapsed ? "▲" : "▼"}</span></header>
+        <header data-h="${hdr}" title="Click to ${settings.panelCollapsed ? "open" : "close"}"><b>BBGM Scout</b><button class="sm theme" data-h="${themeBtn}" title="Theme: ${THEME_LABEL[settings.theme] || "Auto"} (click to change)" aria-label="Switch light or dark mode">${THEME_ICON[settings.theme] || THEME_ICON.auto}</button>${st.ap.running ? `<span class="chip">Autopilot</span>` : ""}<span class="sync" title="${esc(sync.detail)}"><span class="dot ${sync.mode}"></span>${esc(sync.text)}</span><button class="sm caret" data-h="${hdr}" title="${settings.panelCollapsed ? "Open" : "Close"} BBGM Scout" aria-label="${settings.panelCollapsed ? "Open" : "Close"} BBGM Scout" aria-expanded="${!settings.panelCollapsed}">${settings.panelCollapsed ? "▲ Open" : "▼ Close"}</button></header>
         ${nav}
         <div class="body">${st.flash ? `<div class="banner acc">${esc(st.flash)}</div>` : ""}${body}</div>
       </div>`;
@@ -215,6 +259,7 @@
       case "fa": return faBody();
       case "draft": return draftBody();
       case "manager": return managerBody();
+      case "realism": return realismBody();
       default: return "";
     }
   }
@@ -278,7 +323,7 @@
       setTimeout(render, 1500);
     });
     return `
-      <div class="title"><div class="name" title="${esc(s.name)}">${esc(s.name)}</div><span class="tag ${tagCls}">${esc(s.label)}</span></div>
+      <div class="title"><div class="name">${plink(o.pid, s.name)}</div><span class="tag ${tagCls}">${esc(s.label)}</span></div>
       <div class="sub">Age ${s.age} · OVR ${s.ovr} · POT ${s.pot}${s.pos ? ` · ${esc(s.pos)}` : ""}${gem ? ` · <span class="chip ${gem.score >= 7 ? "gem" : gem.score <= -10 ? "over" : ""}" title="See the AI tab">${esc(gem.verdict)}</span>` : ""}</div>
       <div class="big">
         <div title="Median age of career-high OVR (middle 50%: ${r.fc.peakAgeRange[0]}–${r.fc.peakAgeRange[1]})"><small>Peak age</small><strong>${s.peakAge}</strong><em>${r.fc.peakAgeRange[0]}–${r.fc.peakAgeRange[1]}</em></div>
@@ -338,7 +383,7 @@
     if (pid && L.byPid.get(pid)) {
       const g = F.gemVerdict(L, pid);
       html += `<div class="h">Is this player a hidden gem?</div>
-        <div class="card"><div class="hd"><b>${esc(g.name)}</b>${verdictChip(g)}</div>
+        <div class="card"><div class="hd"><b>${plink(g.pid, g.name)}</b>${verdictChip(g)}</div>
         <ul>${g.reasons.map((r) => `<li>${esc(r)}</li>`).join("")}</ul></div>`;
     }
     const gems = F.gemList(L, 8);
@@ -411,6 +456,10 @@
   }
   function tradeCard(L, idea, { propose = true } = {}) {
     const d = idea.desc;
+    const side = (t) => [
+      ...t.pids.map((pid) => { const v = L.byPid.get(pid); return `${plink(pid, LG.name(L, pid))}${v ? ` (${v.summary.ovr})` : ""}`; }),
+      ...t.dpids.map((dpid) => esc(LG.pickName(L, dpid))),
+    ].join(", ") || "nothing";
     const go = on(async (el) => {
       el.disabled = true; el.textContent = "Proposing…";
       try {
@@ -425,8 +474,8 @@
     const needed = F.isNecessary(L, im, settings);
     return `<div class="card"><div class="hd"><b>${esc(d.team)}</b><span class="chip ${im.score > 0 ? "gem" : "over"}" title="Change in BBGM team rating (predicted margin of victory)">${num(im.now)} now · ${num(im.future)} future</span></div>
       <div class="why">${esc(F.impactText(L, im))} · long-term value ${num(im.value, 0)}${needed ? " · <b>improves your team</b>" : ""}</div>
-      <div class="sub">You give: ${esc(d.give.join(", ") || "nothing")}</div>
-      <div class="sub">You get: ${esc(d.get.join(", ") || "nothing")}</div>
+      <div class="sub">You give: ${side(idea.teams[0])}</div>
+      <div class="sub">You get: ${side(idea.teams[1])}</div>
       ${propose ? `<div class="actions"><button class="pri sm" data-h="${go}">Propose</button><button class="sm" data-h="${open}">Open in trade screen</button></div>` : ""}</div>`;
   }
   function tradesBody() {
@@ -440,7 +489,7 @@
       const verdict = F.isNecessary(L, im, settings) ? ["Improves your team", "good"] : im.score < -0.3 ? ["Makes your team worse", "bad"] : ["Marginal", "warn"];
       html += `<div class="h">Deal on the trade screen</div><div class="card"><div class="hd"><b>${esc(c.desc.team)}</b><span class="chip ${verdict[1] === "good" ? "gem" : verdict[1] === "bad" ? "over" : ""}">${verdict[0]}</span></div>
         <div class="why">${esc(F.impactText(L, im))}</div>
-        <table>${[...c.get, ...c.give].map((r) => `<tr><td>${r.value >= 0 ? "Get" : "Give"} ${esc(r.label)}</td><td class="${r.value >= 0 ? "good" : "bad"}">${num(r.value)}</td></tr>`).join("")}</table>
+        <table>${[...c.get, ...c.give].map((r) => `<tr><td>${r.value >= 0 ? "Get" : "Give"} ${r.pid != null ? plink(r.pid, r.label) : esc(r.label)}</td><td class="${r.value >= 0 ? "good" : "bad"}">${num(r.value)}</td></tr>`).join("")}</table>
         <div class="why">Per-asset value = forecast on-court value for your ${esc(L.mode)} timeline, minus salary.</div></div>`;
     }
     const refresh = on(() => { st.trades.ideas = null; invalidate(); refreshTrades(); });
@@ -566,7 +615,7 @@
         html += st.pending.map((a, i) => {
           const one = on(async () => { const [x] = st.pending.splice(i, 1); render(); await F.runActions([x]); invalidate(); st.log = await S.getLog(); refreshPending(); });
           const skip = on(() => { st.pending.splice(i, 1); render(); });
-          return `<div class="card"><div class="hd"><span><span class="chip">${esc(a.kind)}</span> ${esc(a.text)}</span></div>
+          return `<div class="card"><div class="hd"><span><span class="chip">${esc(a.kind)}</span> ${linkText(a.text, a.pids)}</span></div>
             <div class="actions"><button class="sm pri" data-h="${one}">Do it</button><button class="sm" data-h="${skip}">Skip</button></div></div>`;
         }).join("") + `<div class="actions"><button class="pri" data-h="${all}">Do all ${st.pending.length}</button></div>`;
       }
@@ -576,8 +625,41 @@
     const clear = on(async () => { await S.clearLog(); st.log = []; render(); });
     html += st.log.length ? `<div class="log">${st.log.slice(0, 30).map((e) => {
       const u = e.undoKey != null ? on(async (el) => { el.disabled = true; try { await B.call("undoLog", "undo", e.undoKey); st.flash = "Undone."; } catch (err) { st.flash = `Can't undo: ${err.message}`; } invalidate(); render(); }) : null;
-      return `<div><span class="${e.kind === "error" ? "bad" : ""}">${esc(e.text)}</span><span>${u ? `<button class="sm" data-h="${u}">Undo</button> ` : ""}<time>${new Date(e.t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time></span></div>`;
+      return `<div><span class="${e.kind === "error" ? "bad" : ""}">${linkText(e.text, e.pids)}</span><span>${u ? `<button class="sm" data-h="${u}">Undo</button> ` : ""}<time>${new Date(e.t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time></span></div>`;
     }).join("")}</div><div class="actions"><button class="sm" data-h="${clear}">Clear log</button></div>` : `<div class="msg">No actions yet.</div>`;
+    return html;
+  }
+
+  // ======================================================================
+  // Realism tab (God Mode / league setting suggestions over the years)
+  // ======================================================================
+  async function refreshRealism(L) {
+    if (!settings.features.realism || !L) return;
+    try {
+      const hist = await R.record(lidNow(), L);
+      st.realism = { key: st.LKey, ...R.advise(L, hist) };
+    } catch (e) { st.realism = { error: e.message }; }
+  }
+  function realismBody() {
+    const wait = needL();
+    if (wait) return wait;
+    if (!st.realism || st.realism.key !== st.LKey) { refreshRealism(st.L).then(render); return `<div class="msg">Checking the league…</div>`; }
+    if (st.realism.error) return `<div class="msg">${esc(st.realism.error)}</div>`;
+    const { suggestions, rows, now } = st.realism;
+    const open = on(() => goTo(`/l/${lidNow()}/settings`));
+    let html = `<div class="banner">These are suggestions only; BBGM Scout never changes your league settings. Most of them need God Mode (Tools → God Mode), then <a class="pl" href="/l/${lidNow()}/settings">League Settings</a>.</div>`;
+    html += `<div class="h">Suggested tweaks</div>`;
+    html += suggestions.length ? suggestions.map((sg) => `<div class="card"><div class="hd"><b>${esc(sg.title)}</b><span class="chip ${sg.severity === "high" ? "over" : ""}">${esc(sg.severity)}</span></div>
+      <div class="why">${esc(sg.why)}</div>
+      <table>${sg.changes.map((c) => `<tr><td>${esc(c.setting.join(" → "))}</td><td class="mut" style="white-space:nowrap">${c.current !== "" && c.current != null ? `${esc(String(c.current))} →` : "→"}</td><td><b>${esc(String(c.suggest))}</b></td></tr>`).join("")}</table></div>`).join("")
+      : `<div class="msg">The league looks realistic right now. Check back as the seasons go by.</div>`;
+    html += `<div class="actions"><button class="sm" data-h="${open}">Open league settings</button></div>`;
+    const hist = [...rows.slice(-6)];
+    if (!hist.length || hist[hist.length - 1].season !== now.season) hist.push({ ...now, partial: true });
+    const f = (x, d = 1) => (x == null ? "–" : x.toFixed(d));
+    html += `<div class="h">League over the years</div><table><tr><th>Season</th><th title="Players with 70+ OVR per team">Stars</th><th title="Spread of team strength (MOV)">Parity</th><th title="Median payroll ÷ cap">Payroll</th><th title="Share of shots that are threes">3PA</th><th>PPG</th></tr>
+      ${hist.map((r) => `<tr><td>${r.season}${r.partial ? "*" : ""}</td><td>${f(r.stars70PerTeam, 2)}</td><td>${f(r.parity)}</td><td>${r.payrollRatio == null ? "–" : Math.round(r.payrollRatio * 100) + "%"}</td><td>${r.tpaRate == null ? "–" : Math.round(r.tpaRate * 100) + "%"}</td><td>${f(r.ppg)}</td></tr>`).join("")}</table>
+      <div class="why">* season in progress. Recorded on this device each season the league is open.</div>`;
     return html;
   }
 
@@ -789,12 +871,133 @@
   }
 
 
+
+  // ======================================================================
+  // Hover cards: hover any player's name to see the Scout summary
+  // ======================================================================
+  const hoverCache = new Map(); // `${lid}:${pid}` -> { key, result }
+  let tipHost = null, tipRoot = null, tipTimer = null, hideTimer = null, tipFor = null;
+  const TIP_CSS = `
+  :host { all: initial; }
+  .tip { position: fixed; z-index: 2147483001; width: 270px; pointer-events: none;
+    font: 12px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --bg:#fff; --fg:#1d2330; --mut:#667085; --line:#e4e7ec; --chip:#f2f4f7; --acc:#2f6fed; --good:#12804a; --bad:#c4321c; --warn:#a15c00;
+    background: var(--bg); color: var(--fg); border:1px solid var(--line); border-radius:10px; box-shadow:0 8px 24px rgba(16,24,40,.2); padding:9px 10px; }
+  .tip.dark { --bg:#1b1f27; --fg:#e7e9ee; --mut:#98a2b3; --line:#2f3542; --chip:#262b36; --acc:#6f9bff; --good:#4cc38a; --bad:#ff7a66; --warn:#f5b04c; }
+  .hd { display:flex; justify-content:space-between; gap:6px; align-items:baseline; }
+  b { font-size:13px; } .mut { color:var(--mut); } .good { color:var(--good); } .bad { color:var(--bad); } .warn { color:var(--warn); }
+  .chip { font-size:10.5px; font-weight:600; padding:1px 6px; border-radius:999px; background:var(--chip); white-space:nowrap; }
+  .chip.gem { color:var(--good); } .chip.over { color:var(--bad); }
+  .g { display:grid; grid-template-columns:repeat(3,1fr); gap:4px; margin:7px 0 5px; text-align:center; }
+  .g div { background:var(--chip); border-radius:6px; padding:3px 0; }
+  .g small { display:block; font-size:9.5px; color:var(--mut); text-transform:uppercase; letter-spacing:.3px; }
+  .g strong { font-size:16px; font-variant-numeric:tabular-nums; }
+  .r { display:flex; justify-content:space-between; padding:1.5px 0; font-variant-numeric:tabular-nums; }
+  .r span:first-child { color:var(--mut); }
+  .why { color:var(--mut); font-size:11px; margin-top:5px; }`;
+
+  function ensureTip() {
+    if (tipHost && document.body.contains(tipHost)) return;
+    tipHost = document.createElement("div");
+    tipHost.id = "bbgm-scout-tip";
+    tipRoot = tipHost.attachShadow({ mode: "open" });
+    document.body.appendChild(tipHost);
+  }
+  function hideTip() { clearTimeout(tipTimer); tipFor = null; if (tipRoot) tipRoot.innerHTML = ""; }
+
+  async function hoverData(lid, pid) {
+    const ck = `${lid}:${pid}`;
+    const c = hoverCache.get(ck);
+    if (c && c.key === st.pollKey) return c.result;
+    const ctx = await D.load(lid, [pid]);
+    const p = ctx.players.get(pid);
+    if (!p) return null;
+    const result = A.analyze(ctx, p, settings, { nSims: 500 });
+    hoverCache.set(ck, { key: st.pollKey, result });
+    return result;
+  }
+
+  function tipHtml(pid, r) {
+    const s = r.summary;
+    const L = st.L;
+    const v = L && L.byPid.get(pid);
+    const gem = v && settings.features.assistant ? F.gemVerdict(L, pid) : null;
+    const team = v ? (v.p.tid === -1 ? "Free agent" : v.p.tid <= -2 ? "Draft prospect" : (L.teams.get(v.p.tid) || {}).abbrev || "") : "";
+    const rows = [];
+    rows.push(["Breakout / decline", `<span class="${s.breakout >= 0.2 ? "good" : ""}">${pct(s.breakout)}</span> / <span class="${s.decline >= 0.1 ? "bad" : ""}">${pct(s.decline)}</span>`]);
+    rows.push(["Bust risk", `<span class="${s.bust >= 0.5 ? "bad" : ""}">${pct(s.bust)}</span>`]);
+    rows.push(["Development trend", `<span class="${s.trend === "Above expected" ? "good" : s.trend === "Below expected" ? "bad" : ""}">${esc(s.trend)}</span>`]);
+    rows.push(["Confidence", `<span class="${s.confidence === "High" ? "good" : s.confidence === "Low" ? "bad" : "warn"}">${esc(s.confidence)}</span>`]);
+    if (v) {
+      rows.push([`Value to you (${esc(L.mode)})`, `<span class="${v.surplus >= 0 ? "good" : "bad"}">${num(v.surplus, 0)}</span>`]);
+      if (v.p.tid === -1 && v.p.mood) rows.push(["Asking", `${F.fmtMoney(v.p.mood.contractAmount)}${v.p.mood.willing ? "" : " · <span class='bad'>won't sign</span>"}`]);
+      else if (v.p.contract && v.p.tid >= 0) rows.push(["Contract", `${F.fmtMoney(v.p.contract.amount)} thru ${v.p.contract.exp}`]);
+      if (v.prospect) {
+        const board = F.draftBoard(L);
+        const b = board.find((x) => x.pid === pid);
+        if (b) rows.push(["Draft rank (Scout / BBGM)", `#${b.ourRank} / #${b.marketRank}`]);
+      }
+      if (v.p.tid === L.snap.userTid && v.p.ptModifier != null && v.p.ptModifier !== 1) rows.push(["Playing time", esc(F.PT[v.p.ptModifier] || v.p.ptModifier)]);
+      if (v.p.injury && v.p.injury.gamesRemaining > 0) rows.push(["Injury", `<span class="bad">${esc(v.p.injury.type)} (${v.p.injury.gamesRemaining} g)</span>`]);
+    }
+    return `<div class="hd"><b>${esc(s.name)}</b>${gem ? `<span class="chip ${gem.score >= 7 ? "gem" : gem.score <= -10 ? "over" : ""}">${esc(gem.verdict)}</span>` : `<span class="chip">${esc(s.label)}</span>`}</div>
+      <div class="mut">${team ? `${esc(team)} · ` : ""}Age ${s.age} · OVR ${s.ovr} · POT ${s.pot}${s.pos ? ` · ${esc(s.pos)}` : ""}</div>
+      <div class="g"><div><small>Peak age</small><strong>${s.peakAge}</strong></div><div><small>Peak OVR</small><strong>${s.peakOvr}</strong></div><div><small>Ceiling</small><strong>${s.ceiling}</strong></div></div>
+      ${rows.map(([a, b]) => `<div class="r"><span>${a}</span><span>${b}</span></div>`).join("")}
+      ${gem && gem.reasons[1] ? `<div class="why">${esc(gem.reasons[1])}</div>` : ""}`;
+  }
+
+  function placeTip(anchor) {
+    const tip = tipRoot && tipRoot.querySelector(".tip");
+    if (!tip) return;
+    const a = anchor.getBoundingClientRect();
+    const w = tip.offsetWidth, h = tip.offsetHeight;
+    let left = Math.min(window.innerWidth - w - 8, Math.max(8, a.left));
+    let top = a.bottom + 6;
+    if (top + h > window.innerHeight - 8) top = Math.max(8, a.top - h - 6);
+    tip.style.left = `${left}px`; tip.style.top = `${top}px`;
+  }
+
+  function onHoverIn(e) {
+    if (!settings.features.hover) return;
+    const a = e.target.closest && e.target.closest('a[href*="/player/"]');
+    if (!a || a.closest("#bbgm-scout-host")) return;
+    const m = (a.getAttribute("href") || "").match(PLAYER_RE);
+    const lid = lidNow();
+    if (!m || Number(m[1]) !== lid) return;
+    const pid = Number(m[2]);
+    clearTimeout(hideTimer); clearTimeout(tipTimer);
+    if (tipFor === a) return;
+    tipTimer = setTimeout(async () => {
+      tipFor = a;
+      ensureTip();
+      tipRoot.innerHTML = `<style>${TIP_CSS}</style><div class="tip${isDark() ? " dark" : ""}"><span class="mut">Scouting…</span></div>`;
+      placeTip(a);
+      try {
+        const r = await hoverData(lid, pid);
+        if (tipFor !== a) return;
+        tipRoot.innerHTML = `<style>${TIP_CSS}</style><div class="tip${isDark() ? " dark" : ""}">${r ? tipHtml(pid, r) : `<span class="mut">Not in the saved league data yet.</span>`}</div>`;
+        placeTip(a);
+      } catch (err) {
+        if (tipFor === a) tipRoot.innerHTML = "";
+      }
+    }, 300);
+  }
+  function onHoverOut(e) {
+    const a = e.target.closest && e.target.closest('a[href*="/player/"]');
+    if (!a) return;
+    if (e.relatedTarget && a.contains(e.relatedTarget)) return;
+    clearTimeout(tipTimer);
+    hideTimer = setTimeout(hideTip, 120);
+  }
+
   // ======================================================================
   // Routing
   // ======================================================================
   function onRoute() {
     if (location.href === lastUrl) return;
     lastUrl = location.href;
+    hideTip();
     const m = location.pathname.match(PLAYER_RE);
     if (m) showPlayer(Number(m[1]), Number(m[2]));
     else {
@@ -819,6 +1022,9 @@
       scheduleBadges();
     });
     st.log = await S.getLog();
+    document.addEventListener("mouseover", onHoverIn, true);
+    document.addEventListener("mouseout", onHoverOut, true);
+    window.addEventListener("scroll", hideTip, true);
     onRoute();
     setInterval(onRoute, 500); // BBGM is a single-page app; watch for route changes.
     setInterval(tick, 3000);

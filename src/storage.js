@@ -29,8 +29,9 @@
     badges: "draft", // "off" | "draft" | "everywhere"
     panelCollapsed: false,
     panelSide: "right",
+    theme: "auto", // "auto" (follow BBGM / system) | "light" | "dark"
     teamMode: "auto", // "auto" (follow BBGM's team strategy) | "contend" | "balanced" | "rebuild"
-    features: { assistant: true, trades: true, targets: true, freeAgents: true, drafter: false, manager: false, autopilot: false },
+    features: { hover: true, assistant: true, trades: true, targets: true, freeAgents: true, drafter: false, manager: false, autopilot: false, realism: true },
     tradeOnGameDay: true,
     tradeOnTradePage: true,
     draftMode: "suggest", // "suggest" | "auto"

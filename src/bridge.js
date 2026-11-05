@@ -66,7 +66,7 @@
     const g = bbgm.g, idb = bbgm.idb, RK = ${RATINGS};
     const userTid = g.get("userTid"), season = g.get("season"), phase = g.get("phase");
     const ga = {};
-    for (const k of ["salaryCap","minPayroll","luxuryPayroll","minContract","maxContract","maxRosterSize","minRosterSize","salaryCapType","numGames","budget","godMode","realPlayerDeterminism","numActiveTeams","draftType"]) {
+    for (const k of ["salaryCap","minPayroll","luxuryPayroll","luxuryTax","minContract","maxContract","maxContractLength","maxRosterSize","minRosterSize","salaryCapType","numGames","budget","godMode","realPlayerDeterminism","numActiveTeams","draftType","inflationAvg","inflationStd","softCapTradeSalaryMatch","aiTradesFactor","injuryRate","threePointTendencyFactor","pace"]) {
       try { ga[k] = g.get(k); } catch (e) {}
     }
     try { ga.userTids = g.get("userTids"); } catch (e) { ga.userTids = [userTid]; }
@@ -107,9 +107,15 @@
     const draftPicks = (await idb.cache.draftPicks.getAll()).map((d) => ({ dpid: d.dpid, tid: d.tid, originalTid: d.originalTid, season: d.season, round: d.round, pick: d.pick }));
     let order = [];
     if (phase === bbgm.PHASE.DRAFT) order = (await bbgm.draft.getOrder()).map((d) => ({ dpid: d.dpid, tid: d.tid, round: d.round, pick: d.pick }));
+    let leagueStats = null;
+    try {
+      const rows = (await idb.cache.teamStats.getAll()).filter((r) => !r.playoffs && r.season === season);
+      const sum = (k) => rows.reduce((t, r) => t + (r[k] || 0), 0);
+      if (rows.length) leagueStats = { gp: sum("gp"), fga: sum("fga"), tpa: sum("tpa"), pts: sum("pts") };
+    } catch (e) {}
     const tr = await idb.cache.trade.get(0);
     console.log(JSON.stringify({ userTid, season, phase, ga, teams, players, negotiations: [...negPids], draftPicks, order,
-      trade: tr ? tr.teams : null, gameSim: !!bbgm.lock.get("gameSim") }));`;
+      trade: tr ? tr.teams : null, leagueStats, gameSim: !!bbgm.lock.get("gameSim") }));`;
 
   root.BBGMScoutBridge = {
     call,

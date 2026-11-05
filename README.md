@@ -19,7 +19,9 @@ A browser extension for Basketball GM: player development outlooks, a hidden-gem
 
 ## Tools (each can be turned on or off in the popup's Features tab)
 
-The dock in the bottom corner of every BBGM league page has one tab per tool.
+The dock in the bottom corner of every BBGM league page has one tab per tool. Click its header (or ▼ Close / ▲ Open) to collapse or expand it. The ◐ button switches between Auto, Light and Dark mode; the popup has the same button.
+
+**Hover cards** (on by default): hover over any player's name anywhere in BBGM to see their outlook, hidden-gem verdict, value to your team, contract or asking price, draft rank, playing time and injury.
 
 | Tab | What it does | Default |
 |---|---|---|
@@ -30,6 +32,7 @@ The dock in the bottom corner of every BBGM league page has one tab per tool.
 | **FA** | Free agents ranked by value for the money (forecast value minus asking salary), with Sign buttons and the reason when you can't sign someone | On |
 | **Draft** | Draft board ranked by the Scout model next to BBGM's own ranking. Auto Drafter can suggest or make your pick, and can trade up when your top target won't last | Off |
 | **Manager** | Auto Team Management and Autopilot (below), plus an activity log with Undo | Off |
+| **Realism** | Records league-wide numbers every season (stars per team, parity, payrolls vs. the cap, max contracts, long injuries, scoring, three-point rate) and suggests God Mode / league setting tweaks as the years go on. For example: a hard cap or higher luxury tax when dynasties form, inflation when the cap never changes, a different Three Point Tendency Factor when the style drifts from the modern NBA. Suggestions only; it never changes settings | On |
 
 **Team rating and trades.** Trades are judged with BBGM's own team-rating formula: predicted margin of victory from your top 10 OVRs, where 1 point is about 2.7 wins over 82 games. The manager only makes a trade if it raises that rating:
 - **Contending:** right now.

@@ -10,6 +10,21 @@
   };
   const BBGM = "https://play.basketball-gm.com";
 
+  // Player links open in the current tab (the BBGM tab you're on), not a new one.
+  document.addEventListener("click", async (e) => {
+    const a = e.target.closest("a.go");
+    if (!a) return;
+    e.preventDefault();
+    const api = globalThis.chrome || globalThis.browser;
+    try {
+      const [tab] = await api.tabs.query({ active: true, currentWindow: true });
+      if (tab) await api.tabs.update(tab.id, { url: a.href });
+      window.close();
+    } catch (err) {
+      location.href = a.href;
+    }
+  });
+
   // Tabs
   document.querySelectorAll("nav button").forEach((b) => (b.onclick = () => {
     document.querySelectorAll("nav button").forEach((x) => x.classList.toggle("active", x === b));
@@ -32,7 +47,7 @@
     const bBust = Math.min(...pins.map((p) => p.bust ?? Infinity));
     $("pinTable").querySelector("tbody").innerHTML = pins.map((p, i) => `
       <tr>
-        <td><a href="${BBGM}${esc(p.url)}" target="_blank">${esc(p.name)}</a><small>${esc(p.label || "")} · ${p.season} · L${p.lid} · ${ago(p.savedAt)}</small></td>
+        <td><a class="go" href="${BBGM}${esc(p.url)}">${esc(p.name)}</a><small>${esc(p.label || "")} · ${p.season} · L${p.lid} · ${ago(p.savedAt)}</small></td>
         <td>${p.age}</td><td>${p.ovr}</td>
         <td class="${pins.length > 1 && p.peakOvr === bPeak ? "best" : ""}">${p.peakOvr}</td>
         <td class="${pins.length > 1 && p.ceiling === bCeil ? "best" : ""}">${p.ceiling}</td>
@@ -52,7 +67,7 @@
     $("reportsEmpty").hidden = reps.length > 0;
     $("reportList").innerHTML = reps.map((r, i) => `
       <li>
-        <div class="top"><a href="${BBGM}${esc(r.url)}" target="_blank"><b>${esc(r.name)}</b></a><button class="x" data-i="${i}" title="Delete">×</button></div>
+        <div class="top"><a class="go" href="${BBGM}${esc(r.url)}"><b>${esc(r.name)}</b></a><button class="x" data-i="${i}" title="Delete">×</button></div>
         <div class="meta">${r.season} · age ${r.age} · OVR ${r.ovr}/${r.pot} → peak ${r.peakOvr} @ ${r.peakAge}, ceiling ${r.ceiling} · breakout ${pct(r.breakout)} · bust ${pct(r.bust)} · ${esc(r.trend || "")} · ${esc(r.confidence || "")} confidence · ${new Date(r.savedAt).toLocaleDateString()}</div>
         ${r.note ? `<div class="note">${esc(r.note)}</div>` : ""}
       </li>`).join("");
@@ -123,6 +138,21 @@
   });
   renderFeatures();
 
-  S.onChange(() => { renderPins(); renderReports(); renderSync(); renderFeatures(); });
+  // ---- Light / dark mode ----
+  const THEME_ICON = { auto: "◐ Auto", light: "☀ Light", dark: "☾ Dark" };
+  async function applyTheme() {
+    const { theme = "auto" } = await S.getSettings();
+    if (theme === "auto") document.documentElement.removeAttribute("data-theme");
+    else document.documentElement.setAttribute("data-theme", theme);
+    $("themeBtn").textContent = THEME_ICON[theme] || THEME_ICON.auto;
+  }
+  $("themeBtn").onclick = async () => {
+    const { theme = "auto" } = await S.getSettings();
+    await S.saveSettings({ theme: { auto: "light", light: "dark", dark: "auto" }[theme] || "light" });
+    applyTheme(); renderFeatures();
+  };
+  applyTheme();
+
+  S.onChange(() => { renderPins(); renderReports(); renderSync(); renderFeatures(); applyTheme(); });
   renderSync(); renderPins(); renderReports(); renderSettings();
 })();

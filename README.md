@@ -81,11 +81,19 @@ Open any Basketball GM league in the browser and BBGM Scout attaches to it autom
 - Multi-team mode and spectator mode: the scouting tools work, but leave the Manager and Autopilot off (they assume you control one team).
 - Real-player leagues with "real player development" on are flagged as lower confidence, because real careers override BBGM's random progression.
 
+## Download
+
+- **Chrome / Edge / Brave / Arc:** [bbgm-scout.zip](https://github.com/topcommentgodyt-prog/bbgm-scout/raw/main/dist/bbgm-scout.zip)
+- **Firefox:** [bbgm-scout-firefox.zip](https://github.com/topcommentgodyt-prog/bbgm-scout/raw/main/dist/bbgm-scout-firefox.zip)
+
+These always match the latest version on `main`.
+
 ## Install
 
 **Chrome / Edge / Brave / Arc (Mac, Windows, Linux):**
-1. Go to `chrome://extensions` and turn on **Developer mode**.
-2. Click **Load unpacked** and pick this `bbgm-scout` folder.
+1. Download and unzip `bbgm-scout.zip` (above).
+2. Go to `chrome://extensions` and turn on **Developer mode**.
+3. Click **Load unpacked** and pick the unzipped `bbgm-scout` folder.
 
 **Firefox:** download the `-firefox` ZIP from Releases (or, in the source folder, rename `manifest.firefox.json` to `manifest.json`). Then go to `about:debugging` → This Firefox → **Load Temporary Add-on** and pick `manifest.json`. For a permanent install, sign the extension through addons.mozilla.org as an unlisted add-on.
 

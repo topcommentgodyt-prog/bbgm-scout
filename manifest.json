@@ -1,34 +1,63 @@
 {
   "manifest_version": 3,
   "name": "BBGM Scout",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "Scouting, trade help, free agents, auto draft, team management and autopilot for Basketball GM.",
-  "permissions": ["storage"],
-  "host_permissions": ["https://api.anthropic.com/*"],
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://api.anthropic.com/*"
+  ],
   "background": {
-    "service_worker": "src/background.js",
-    "scripts": ["src/background.js"]
+    "service_worker": "src/background.js"
   },
   "action": {
     "default_title": "BBGM Scout",
     "default_popup": "popup/popup.html",
-    "default_icon": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
   },
-  "icons": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
   "content_scripts": [
     {
-      "matches": ["https://play.basketball-gm.com/*", "https://beta.basketball-gm.com/*"],
-      "js": ["src/bridge-main.js"],
+      "matches": [
+        "https://play.basketball-gm.com/*",
+        "https://beta.basketball-gm.com/*"
+      ],
+      "js": [
+        "src/bridge-main.js"
+      ],
       "world": "MAIN",
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://play.basketball-gm.com/*", "https://beta.basketball-gm.com/*"],
-      "js": ["src/engine.js", "src/data.js", "src/storage.js", "src/analyze.js", "src/bridge.js", "src/league.js", "src/features.js", "src/realism.js", "src/planning.js", "src/content.js"],
+      "matches": [
+        "https://play.basketball-gm.com/*",
+        "https://beta.basketball-gm.com/*"
+      ],
+      "js": [
+        "src/engine.js",
+        "src/data.js",
+        "src/storage.js",
+        "src/analyze.js",
+        "src/bridge.js",
+        "src/league.js",
+        "src/features.js",
+        "src/realism.js",
+        "src/planning.js",
+        "src/content.js"
+      ],
       "run_at": "document_idle"
     }
-  ],
-  "browser_specific_settings": {
-    "gecko": { "id": "bbgm-scout@local", "strict_min_version": "128.0" }
-  }
+  ]
 }

@@ -87,7 +87,7 @@ Open any Basketball GM league in the browser and BBGM Scout attaches to it autom
 1. Go to `chrome://extensions` and turn on **Developer mode**.
 2. Click **Load unpacked** and pick this `bbgm-scout` folder.
 
-**Firefox:** go to `about:debugging` → This Firefox → **Load Temporary Add-on**, then pick `manifest.json`. For a permanent install, sign the extension through addons.mozilla.org as an unlisted add-on.
+**Firefox:** download the `-firefox` ZIP from Releases (or, in the source folder, rename `manifest.firefox.json` to `manifest.json`). Then go to `about:debugging` → This Firefox → **Load Temporary Add-on** and pick `manifest.json`. For a permanent install, sign the extension through addons.mozilla.org as an unlisted add-on.
 
 **Safari (Mac):** run `xcrun safari-web-extension-converter bbgm-scout/` and build the generated Xcode project.
 

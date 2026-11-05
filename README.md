@@ -61,7 +61,7 @@ There's no limit on how many trades it makes. Because each one has to strictly i
 
 You can also set the longest contract the manager may give and how much cap space to always keep free. Signings, re-signings and trades that break these rules are skipped or flagged.
 
-**Autopilot.** Like BBGM's Auto Play, but your team keeps being managed by the rules above instead of the game's AI. It plays a day (or a week) at a time through the regular season, playoffs, draft, re-signing, free agency and preseason. Before every step it runs the manager and the Auto Drafter. It stops after the number of seasons you choose, at an optional checkpoint, when you press Stop, or if BBGM needs your attention.
+**Autopilot.** Like BBGM's Auto Play, but your team keeps being managed by the rules above instead of the game's AI. It plays a day (or a week) at a time through the regular season, playoffs, draft, re-signing, free agency and preseason. Before every step it runs the manager and the Auto Drafter. It stops after the number of seasons you choose (a 1–100 dropdown in the Manager tab), at an optional checkpoint, when you press Stop, or if BBGM needs your attention.
 
 **How actions happen.** A small script in the BBGM page calls the same internal functions BBGM's own buttons use (`bbgm.toWorker`). Only an allow-listed set of actions is possible. The game enforces its rules (cap, roster limits, trade deadline, player willingness) and records undo entries. Read-only league snapshots go through BBGM's official worker-console mechanism. Nothing writes to the league database directly.
 

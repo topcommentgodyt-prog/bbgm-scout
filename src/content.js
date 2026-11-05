@@ -152,6 +152,13 @@
     });
     shadow.addEventListener("input", (e) => { if (e.target.id === "askq") st.ask.q = e.target.value; });
     shadow.addEventListener("change", async (e) => {
+      const seasons = e.target.closest("select[data-apseasons]");
+      if (seasons) {
+        settings.apSeasons = Math.max(1, Math.min(100, Number(seasons.value) || 1));
+        await S.saveSettings({ apSeasons: settings.apSeasons });
+        render();
+        return;
+      }
       const sel = e.target.closest("select[data-protect]");
       if (!sel) return;
       const [kind, id] = sel.dataset.protect.split(":");
@@ -246,6 +253,7 @@
   .log div { display:flex; gap:6px; justify-content:space-between; padding:3px 0; border-bottom:1px dashed var(--line); font-size:11.5px; }
   .log time { color:var(--mut); flex:none; }
   select.prot { font:inherit; font-size:11px; padding:1px 3px; border-radius:6px; border:1px solid var(--line); background:var(--bg); color:var(--fg); max-width:118px; }
+  label.apseasons { display:flex; align-items:center; gap:6px; } label.apseasons select { font:inherit; padding:2px 4px; border-radius:6px; border:1px solid var(--line); background:var(--bg); color:var(--fg); }
   select.prot.never { border-color:var(--bad); } select.prot.ask { border-color:var(--warn); }
   .warn-line { color:var(--warn); font-size:11px; margin-top:3px; }
   .flag { border-left:3px solid var(--line); padding:5px 8px; margin-bottom:6px; background:var(--chip); border-radius:6px; font-size:12px; }
@@ -526,6 +534,7 @@
       neverNames.length ? `Includes Never-trade: ${neverNames.join(", ")}` : "",
       askNames.length ? `Includes Ask-first: ${askNames.join(", ")}` : "",
       rb ? `Breaks your rules: ${rb}` : "",
+      idea.rosterAfter > L.capInfo.maxRoster ? `Leaves your roster at ${idea.rosterAfter}/${L.capInfo.maxRoster}: you'd have to release ${idea.rosterAfter - L.capInfo.maxRoster} player${idea.rosterAfter - L.capInfo.maxRoster === 1 ? "" : "s"}` : "",
     ].filter(Boolean);
     if (neverNames.length) propose = false;
     return `<div class="card"><div class="hd"><b>${esc(d.team)}</b><span class="chip ${im.score > 0 ? "gem" : "over"}" title="Change in BBGM team rating (predicted margin of victory)">${num(im.now)} now · ${num(im.future)} future</span></div>
@@ -677,13 +686,15 @@
       const stop = on(() => stopAutopilot());
       html += `<div class="h">Autopilot</div><div class="card">
         <div class="sub">Plays ${settings.apStep === "week" ? "a week" : "a day"} at a time for ${settings.apSeasons} season${settings.apSeasons === 1 ? "" : "s"}${settings.apStopAt !== "never" ? `, stopping at ${esc(settings.apStopAt)}` : ""}. Before every step it runs the manager: finances, lineup, minutes, re-signings, cuts, signings, trades and the draft.</div>
+        <div class="actions"><label class="apseasons">Seasons to play <select data-apseasons title="How many seasons Autopilot plays before it stops (1–100)"${st.ap.running ? " disabled" : ""}>${Array.from({ length: 100 }, (_, i) => i + 1).map((n) => `<option value="${n}"${n === settings.apSeasons ? " selected" : ""}>${n}</option>`).join("")}</select></label></div>
         ${st.ap.running ? `<div class="banner acc">${esc(st.ap.status || "Running…")}</div>` : st.ap.status ? `<div class="why">${esc(st.ap.status)}</div>` : ""}
         <div class="actions">${st.ap.running ? `<button data-h="${stop}">Stop</button>` : `<button class="pri" data-h="${start}">Start autopilot</button>`}</div></div>`;
     }
     if (settings.features.manager) {
       const refresh = on(() => { st.pending = null; invalidate(); render(); refreshPending(); });
-      html += `<div class="h">${settings.managerMode === "auto" ? "Automatic management is on" : "Suggested moves"}</div>`;
-      if (settings.managerMode === "auto") html += `<div class="why">Runs after every game day and phase change. Everything it does is logged below.</div>`;
+      html += `<div class="h">${st.ap.running ? "Autopilot is managing the team" : settings.managerMode === "auto" ? "Automatic management is on" : "Suggested moves"}</div>`;
+      if (st.ap.running) html += `<div class="why">Autopilot makes these moves itself before every step and logs them below. Only moves that need your OK (Ask-first players or picks, or moves that break your contract rules) wait here.</div>`;
+      else if (settings.managerMode === "auto") html += `<div class="why">Runs after every game day and phase change. Everything it does is logged below.</div>`;
       if (!st.pending) html += needL() || `<div class="msg">Planning…</div>`;
       else if (!st.pending.length) html += `<div class="msg">Nothing to change right now.</div>`;
       else {
@@ -700,8 +711,8 @@
     html += `<div class="h">Activity log</div>`;
     const clear = on(async () => { await S.clearLog(); st.log = []; render(); });
     html += st.log.length ? `<div class="log">${st.log.slice(0, 30).map((e) => {
-      const u = e.undoKey != null ? on(async (el) => { el.disabled = true; try { await B.call("undoLog", "undo", e.undoKey); st.flash = "Undone."; } catch (err) { st.flash = `Can't undo: ${err.message}`; } invalidate(); render(); }) : null;
-      return `<div><span class="${e.kind === "error" ? "bad" : ""}">${linkText(e.text, e.pids)}</span><span>${u ? `<button class="sm" data-h="${u}">Undo</button> ` : ""}<time>${new Date(e.t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time></span></div>`;
+      const u = e.undoKey != null && !e.undone ? on(async (el) => { el.disabled = true; try { await B.call("undoLog", "undo", e.undoKey); await S.markUndone(e.t); st.log = await S.getLog(); st.flash = "Undone."; } catch (err) { st.flash = `Can't undo: ${err.message}`; } invalidate(); render(); setTimeout(() => { st.flash = ""; render(); }, 6000); }) : null;
+      return `<div><span class="${e.kind === "error" ? "bad" : ""}">${linkText(e.text, e.pids)}${e.undone ? ` <small class="mut">(undone)</small>` : ""}</span><span>${u ? `<button class="sm" data-h="${u}">Undo</button> ` : ""}<time>${new Date(e.t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time></span></div>`;
     }).join("")}</div><div class="actions"><button class="sm" data-h="${clear}">Clear log</button></div>` : `<div class="msg">No actions yet.</div>`;
     return html;
   }
@@ -909,7 +920,9 @@
         const planned = (await F.managerPlan(L, s2, { lid: lidNow(), includeTrades: s2.manage.trades && td.due && td })).filter((a) => !failed.has(`${keyOf(poll)}|${a.text}`));
         const waiting = planned.filter((a) => a.approval);
         const acts = planned.filter((a) => !a.approval);
-        if (waiting.length) st.pending = waiting;
+        // Autopilot makes every other move itself, so the list only keeps what needs your OK
+        // (never a stale "Do it / Skip" list from before Autopilot started).
+        st.pending = waiting;
         // Re-signing can't continue past undecided protected players, so hand control back.
         if (poll.phase === 7 && waiting.some((a) => a.kind === "resign" || a.kind === "letwalk") && !acts.length) {
           st.ap.status = `Paused: ${waiting.length} move${waiting.length === 1 ? "" : "s"} need your OK (protected players or contract rules). Approve or skip them below, then start Autopilot again.`;
@@ -921,6 +934,7 @@
           const res = await F.runActions(acts);
           res.filter((r) => !r.ok).forEach((r) => failed.add(`${keyOf(poll)}|${r.a.text}`));
           invalidate();
+          st.log = await S.getLog(); render();
           const k2 = keyOf(poll);
           rounds = roundsKey === k2 ? rounds + 1 : 1; roundsKey = k2;
           if (res.some((r) => r.ok) && rounds < 3) continue; // re-check after changes (e.g. roster size)

@@ -186,21 +186,24 @@ Choose a mode: **Suggest** (a list of proposed moves, each with Do it / Skip, pl
    - Contending: + for the top 2 players when they're clearly better than the 3rd.
    - Rebuilding: + for young (≤ 23), high-ceiling bench players, to keep them happy. Playing time affects player mood, not progression.
    - Optional tanking when rebuilding: − for veterans in the top 3.
+   - A player right at a cutoff keeps his current setting while it's what he'd get one spot up or down, so minutes don't flip back and forth from day to day.
 4. **Re-signing** (re-signing phase): re-signs players whose value exceeds their asking price and lets the rest walk. "Unwilling to re-sign" is also handled.
-5. **Roster cuts:** when the roster is over the limit, releases the lowest-value players, counting the salary still owed.
+5. **Roster cuts:** when the roster is over the limit (preseason, regular season or free agency), releases the lowest-value players, counting the salary still owed. It doesn't cut right after the draft, because expiring contracts leave at re-signing time and usually free the spots.
 6. **Free-agent signings:** fills the roster toward the target size (max − 1 in the offseason, the minimum during the season), with positive-value, cap-legal, willing free agents. Below the minimum roster it signs the best available even at break-even. Up to 3 signings per cycle.
 7. **Trades: no fixed cap.** A trade is made only when it is **necessary to improve the team**:
    - Contend: team rating now improves by at least the minimum (default 0.5 MOV), the future doesn't collapse, and long-term value stays reasonable.
    - Rebuild: team rating over the next two seasons improves by the minimum, and total value improves.
    - Balanced: neither now nor future gets worse, and the average improves by the minimum.
 
-   Each accepted trade must strictly improve the team, so the manager can't trade back and forth. The trade search runs every N game days (default 1) and on every phase change, because searching is slow.
-- **Activity log:** the last 200 actions with timestamps, player-name links and **Undo** buttons where BBGM provides an undo entry (trades, signings). Stored on the device.
+   Each accepted trade must strictly improve the team, so the manager can't trade back and forth. It skips trades that would push the roster past the maximum (counting signings planned in the same round); the Trades tab warns when a suggested deal would leave you over the limit. The trade search runs every N game days (default 1) and on every phase change, because searching is slow.
+- **Activity log:** the last 200 actions with timestamps, player-name links and **Undo** buttons where BBGM provides an undo entry (trades, signings). An undone entry is marked "(undone)" and loses its button. Stored on the device.
 
 ---
 
 ## 11. Manager tab: Autopilot
 
+- **Seasons to play:** a dropdown in the Autopilot section (1–100 seasons; also in the popup).
+- While it runs, Autopilot makes every manager move itself; the Manager list only shows moves that need your OK (Ask-first assets or contract-rule breaks).
 - Like BBGM's built-in Auto Play, but your team keeps being run by the manager rules above (with re-signing, cuts and signings forced on so the game never stops to ask you), instead of BBGM's AI.
 - Before every step it re-reads the league, runs the manager (finances, lineup, minutes, re-signings, cuts, signings, trades) and the Auto Drafter, then advances:
   - Preseason → start the regular season
@@ -334,7 +337,7 @@ Choose a mode: **Suggest** (a list of proposed moves, each with Do it / Skip, pl
 ## 14. Testing and known limits
 
 - Unit tests cover the progression engine, OVR formula, coaching and fog effects, trend, confidence, team rating and performance (1,000 simulations of a 19-year-old in well under 250 ms).
-- End-to-end browser tests ran against a mock of BBGM's engine API, written from BBGM's source code: a full simulated season with trades, signings, draft picks, minutes changes, cuts, re-signings and free agency, plus the popup switches, open/close, theme, hover cards and same-tab links. **It has not yet run on the live BBGM site**, so use a copy of a league and Suggest mode first.
+- End-to-end browser tests ran against a mock of BBGM's engine API, written from BBGM's source code: a full simulated season with trades, signings, draft picks, minutes changes, cuts, re-signings and free agency, plus the popup switches, open/close, theme, hover cards and same-tab links. Version 2.3.0 was also checked on the live BBGM site (play.basketball-gm.com, a new random-players league) by loading the scripts into the page with a stand-in for the extension storage API: every tab loaded, signings, a proposed trade and Undo worked, and Autopilot played a full season (playoffs, draft, re-signing, free agency) to the next preseason. It wasn't installed as a real extension there, and the AI tab's Claude questions weren't tried. Use a copy of a league and Suggest mode first.
 - BBGM's internal API isn't a public contract. A BBGM update could rename something, in which case the affected tool shows an error and the others keep working.
 - Basketball GM only; the other ZenGM sports use different rating systems.
 - The coaching effect uses the current budget level; BBGM uses a 3-season average.

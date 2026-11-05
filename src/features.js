@@ -20,7 +20,11 @@
     { tid: userTid, pids: upids, dpids: udpids, pidsExcluded: [], dpidsExcluded: [] },
     { tid, pids, dpids, pidsExcluded: [], dpidsExcluded: [] },
   ];
-  const fmtMoney = (k) => (k >= 1000 ? `$${(k / 1000).toFixed(1)}M` : `$${Math.round(k)}k`);
+  // Amounts are in thousands. Negative amounts (e.g. cap space when over the cap) read as "-$44.1M", not "$-44120k".
+  const fmtMoney = (k) => {
+    const a = Math.abs(k), sign = k < 0 ? "-" : "";
+    return a >= 1000 ? `${sign}$${(a / 1000).toFixed(1)}M` : `${sign}$${Math.round(a)}k`;
+  };
   const shownOvr = (v) => v.summary.ovr;
 
   // ======================= AI Assistant: hidden gems =======================
@@ -318,6 +322,24 @@
       if (settings.tank && L.mode === "rebuild" && i < 3 && age >= 26) { pt = 0.75; why = "tanking: resting veterans for better lottery odds"; }
       plan.set(v.p.pid, [pt, why]);
     });
+    // Hysteresis: a player right at a depth-chart cutoff can swap places with a teammate every day
+    // (injuries, small rating changes). Keep the current setting while it's what the player would get one
+    // spot up or down, so the manager doesn't flip minutes back and forth.
+    const ptAt = (v, i) => {
+      if (i < 0 || i >= healthy.length) return null;
+      const age = v.summary.age;
+      let pt = 1;
+      if (i >= R + 2 && healthy.length > R + 2) pt = 0;
+      else if (i >= R) pt = 0.75;
+      if (L.mode === "contend" && i < 2 && healthy[2] && shownOvr(v) - shownOvr(healthy[2]) >= 4) pt = 1.25;
+      if (L.mode === "rebuild" && i >= 5 && i < R + 2 && age <= 23 && v.summary.ceiling >= 58) pt = 1.25;
+      if (settings.tank && L.mode === "rebuild" && i < 3 && age >= 26) pt = 0.75;
+      return pt;
+    };
+    healthy.forEach((v, i) => {
+      const cur = v.p.ptModifier ?? 1;
+      if (cur !== plan.get(v.p.pid)[0] && (ptAt(v, i - 1) === cur || ptAt(v, i + 1) === cur)) plan.set(v.p.pid, [cur, "unchanged"]);
+    });
     return mine
       .map((v) => ({ v, pt: plan.get(v.p.pid)[0], why: plan.get(v.p.pid)[1] }))
       .filter((x) => x.pt !== (x.v.p.ptModifier ?? 1));
@@ -372,7 +394,8 @@
         }
       }
     }
-    if (m.releases && L.capInfo.rosterSize > L.capInfo.maxRoster && (phase === PH.PRESEASON || phase === PH.REGULAR_SEASON || phase === PH.AFTER_DRAFT || phase === PH.FREE_AGENCY)) {
+    if (m.releases && L.capInfo.rosterSize > L.capInfo.maxRoster && (phase === PH.PRESEASON || phase === PH.REGULAR_SEASON || phase === PH.FREE_AGENCY)) {
+      // Not right after the draft: expiring contracts leave at re-signing time, which usually frees the spots.
       const extra = L.capInfo.rosterSize - L.capInfo.maxRoster;
       const mine = L.roster(L.snap.userTid).map((p) => L.byPid.get(p.pid)).filter(Boolean);
       // Cheapest to cut = lowest value, counting the salary you'd still owe.
@@ -380,6 +403,7 @@
       for (const { v } of cut) push("release", `Release ${LG.name(L, v.p.pid)} (lowest value on an over-full roster)`, () => B.call("main", "releasePlayer", { pids: [v.p.pid] }), [v.p.pid],
         { approval: lvl(v.p.pid) === "ask", why: lvl(v.p.pid) === "ask" ? "Ask first" : "" });
     }
+    let signed = 0; // signings planned this round, so a trade below can't push the roster past the maximum
     if (m.signings && signingAllowed(phase)) {
       let size = L.capInfo.rosterSize;
       const target = phase === PH.FREE_AGENCY || phase === PH.PRESEASON ? L.capInfo.maxRoster - 1 : L.capInfo.minRoster;
@@ -389,13 +413,14 @@
         if (!fa.canSign || (fa.surplus <= 0 && size >= L.capInfo.minRoster)) continue;
         if (L.capInfo.type !== "none" && payroll + fa.ask > L.capInfo.cap && fa.ask > L.capInfo.minContract + 1) continue;
         push("sign", `Sign ${fa.name} (OVR ${fa.s.ovr}, ${fmtMoney(fa.ask)} through ${fa.exp}, value +${fa.surplus.toFixed(1)})`, () => sign(L, fa), [fa.pid]);
-        size++; payroll += fa.ask;
+        size++; payroll += fa.ask; signed++;
         if (acts.filter((a) => a.kind === "sign").length >= 3) break;
       }
     }
     if (m.trades && includeTrades && tradesAllowed(L)) {
       const { ideas } = await tradeIdeas(L, { shop: 3 });
-      const best = ideas.find((x) => isNecessary(L, x.impact, settings) && !x.ruleBreak);
+      // Don't take on more players than the roster holds: the manager would just release someone it traded for.
+      const best = ideas.find((x) => isNecessary(L, x.impact, settings) && !x.ruleBreak && x.rosterAfter + signed <= L.capInfo.maxRoster);
       if (best) {
         const why = impactText(L, best.impact);
         push("trade", `Trade ${best.desc.give.join(", ")} to ${best.desc.team} for ${best.desc.get.join(", ")} (${why})`, async () => {

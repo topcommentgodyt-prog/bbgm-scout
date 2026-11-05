@@ -163,6 +163,11 @@
   }
   const getLog = async () => (await localGet("actionLog")) || [];
   const clearLog = () => localSet("actionLog", []);
+  /** Marks a log entry (by its timestamp) as undone, so its Undo button goes away. */
+  async function markUndone(t) {
+    const log = (await localGet("actionLog")) || [];
+    await localSet("actionLog", log.map((e) => (e.t === t ? { ...e, undone: true } : e)));
+  }
 
   // ---- League identity: which local league number each league has on THIS device ----
   async function rememberLeague(league, lid) {
@@ -220,7 +225,7 @@
 
   root.BBGMScoutStorage = {
     MODEL_VERSION, DEFAULT_SETTINGS, getSettings, saveSettings, getPins, isPinned, togglePin, refreshPin,
-    listReports, saveReport, deleteReport, status, onChange, localGet, localSet, addLog, getLog, clearLog,
+    listReports, saveReport, deleteReport, status, onChange, localGet, localSet, addLog, getLog, clearLog, markUndone,
     rememberLeague, leagueMap, knownLeague, localUrl, migrateLeague, markSaved,
   };
 })(globalThis);

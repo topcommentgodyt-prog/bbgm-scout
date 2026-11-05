@@ -78,6 +78,7 @@
     offer: null, // targets: built offer
     targetsBusy: null,
     pending: null, // manager suggestions
+    openDetails: {}, // which expandable sections are open, so re-renders don't close them
     log: [],
     ap: { running: false, status: "", startSeason: null, stopReq: false },
     ask: { q: "", busy: false, answer: "", error: "" },
@@ -163,6 +164,10 @@
       const fn = handlers.get(el.dataset.h);
       if (fn) { e.preventDefault(); await fn(el); }
     });
+    shadow.addEventListener("toggle", (e) => {
+      const d = e.target;
+      if (d && d.tagName === "DETAILS" && d.dataset.key) st.openDetails[d.dataset.key] = d.open;
+    }, true);
     shadow.addEventListener("input", (e) => { if (e.target.id === "askq") st.ask.q = e.target.value; });
     shadow.addEventListener("change", async (e) => {
       const ctl = e.target.closest("[data-set]");
@@ -317,12 +322,20 @@
     }).join("")}</nav>` : "";
     let body = "";
     try { body = bodyFor(st.tab); } catch (e) { body = `<div class="msg">${esc(e.message)}</div>`; }
+    const prevBody = shadow.querySelector(".body");
+    const scrollTop = prevBody && st.lastTab === st.tab ? prevBody.scrollTop : 0; // a new tab starts at the top
+    st.lastTab = st.tab;
+    const focusKey = shadow.activeElement && shadow.activeElement.dataset ? shadow.activeElement.dataset.set : null;
     shadow.innerHTML = `<style>${CSS}</style>
       <div class="wrap ${settings.panelSide === "left" ? "left" : "right"}${isDark() ? " dark" : ""}${settings.panelCollapsed ? " collapsed" : ""}">
         <header data-h="${hdr}" title="Click to ${settings.panelCollapsed ? "open" : "close"}"><b>BBGM Scout</b><button class="sm theme" data-h="${themeBtn}" title="Theme: ${THEME_LABEL[settings.theme] || "Auto"} (click to change)" aria-label="Switch light or dark mode">${THEME_ICON[settings.theme] || THEME_ICON.auto}</button>${st.ap.running ? `<span class="chip">Autopilot</span>` : ""}<span class="sync" title="${esc(sync.detail)}"><span class="dot ${sync.mode}"></span>${esc(sync.text)}</span><button class="sm caret" data-h="${hdr}" title="${settings.panelCollapsed ? "Open" : "Close"} BBGM Scout" aria-label="${settings.panelCollapsed ? "Open" : "Close"} BBGM Scout" aria-expanded="${!settings.panelCollapsed}">${settings.panelCollapsed ? "▲ Open" : "▼ Close"}</button></header>
         ${nav}
         <div class="body">${st.flash ? `<div class="banner acc">${esc(st.flash)}</div>` : ""}${body}</div>
       </div>`;
+    // Keep the reader's place: the panel is rebuilt on every change.
+    const bodyEl = shadow.querySelector(".body");
+    if (bodyEl && scrollTop) bodyEl.scrollTop = scrollTop;
+    if (focusKey) { const el = shadow.querySelector(`[data-set="${focusKey}"]`); if (el) el.focus(); }
   }
 
   function bodyFor(tab) {
@@ -708,7 +721,9 @@
     } catch (e) { st.flash = e.message; }
     render();
   }
-  const exHtml = (ex) => !ex ? "" : `<details class="ex"><summary>Why</summary><div>${esc(ex.why || "")}${ex.strategy ? ` <span class="chip">${esc(ex.strategy)}</span>` : ""} <span class="mut">(${esc(ex.basis || "projected")})</span></div>
+  /** An expandable section that stays open/closed across re-renders (the panel redraws on every change). */
+  const det = (key, cls = "", dflt = false) => `<details data-key="${esc(key)}"${cls ? ` class="${cls}"` : ""}${(st.openDetails[key] ?? dflt) ? " open" : ""}>`;
+  const exHtml = (ex, key) => !ex ? "" : `${det(`why:${key}`, "ex")}<summary>Why</summary><div>${esc(ex.why || "")}${ex.strategy ? ` <span class="chip">${esc(ex.strategy)}</span>` : ""} <span class="mut">(${esc(ex.basis || "projected")})</span></div>
     ${ex.benefits && ex.benefits.length ? `<div><b>Benefits</b><ul>${ex.benefits.map((b) => `<li>${esc(b)}</li>`).join("")}</ul></div>` : ""}
     ${ex.costs && ex.costs.length ? `<div><b>Costs</b><ul>${ex.costs.map((b) => `<li>${esc(b)}</li>`).join("")}</ul></div>` : ""}</details>`;
 
@@ -717,7 +732,7 @@
     const pct = (x) => (x == null ? "–" : (x * 100).toFixed(1) + "%");
     const m = (x) => (x == null ? "–" : F.fmtMoney(x));
     const t = sm.trades;
-    return `<details class="card" ${st.ap.justFinished ? "open" : ""}><summary><b>Last Autopilot run</b> · ${sm.from}${sm.to !== sm.from ? `–${sm.to}` : ""} · ${sm.seasons.length} season${sm.seasons.length === 1 ? "" : "s"} with games</summary>
+    return `${det("summary", "card", !!st.ap.justFinished)}<summary><b>Last Autopilot run</b> · ${sm.from}${sm.to !== sm.from ? `–${sm.to}` : ""} · ${sm.seasons.length} season${sm.seasons.length === 1 ? "" : "s"} with games</summary>
       <table class="sum">
         <tr><td>Championships</td><td><b>${sm.titles}</b></td></tr>
         <tr><td>Playoff appearances</td><td>${sm.playoffApps} of ${sm.seasons.length}</td></tr>
@@ -727,9 +742,9 @@
         <tr><td>Other moves</td><td>${sm.moves.signings} signed, ${sm.moves.resignings} re-signed, ${sm.moves.letWalk} let go, ${sm.moves.releases} released${sm.moves.errors ? `, <span class="bad">${sm.moves.errors} failed</span>` : ""}</td></tr>
         <tr><td>Roster turnover</td><td>${sm.turnover} of ${sm.rosterStartSize} starting players gone</td></tr>
       </table>
-      ${sm.drafts.length ? `<details><summary>Draft picks (${sm.drafts.length})</summary><div class="ex"><ul>${sm.drafts.map((d) => `<li>${esc(d)}</li>`).join("")}</ul></div></details>` : ""}
-      ${sm.strategyChanges.length ? `<details><summary>Strategy changes (${sm.strategyChanges.length})</summary><div class="ex"><ul>${sm.strategyChanges.map((d) => `<li>${esc(d)}</li>`).join("")}</ul></div></details>` : ""}
-      ${sm.seasons.length ? `<details><summary>Season by season</summary><table class="sum"><tr><th>Season</th><th>Record</th><th>Playoffs</th><th>Strategy</th></tr>${sm.seasons.map((x) =>
+      ${sm.drafts.length ? `${det("summary:drafts")}<summary>Draft picks (${sm.drafts.length})</summary><div class="ex"><ul>${sm.drafts.map((d) => `<li>${esc(d)}</li>`).join("")}</ul></div></details>` : ""}
+      ${sm.strategyChanges.length ? `${det("summary:strategy")}<summary>Strategy changes (${sm.strategyChanges.length})</summary><div class="ex"><ul>${sm.strategyChanges.map((d) => `<li>${esc(d)}</li>`).join("")}</ul></div></details>` : ""}
+      ${sm.seasons.length ? `${det("summary:seasons")}<summary>Season by season</summary><table class="sum"><tr><th>Season</th><th>Record</th><th>Playoffs</th><th>Strategy</th></tr>${sm.seasons.map((x) =>
         `<tr><td>${x.season}</td><td>${x.won}-${x.lost}${x.tied ? `-${x.tied}` : ""}</td><td class="${x.champion ? "good" : ""}">${esc(x.playoffs)}</td><td>${esc(x.strategy || "")}</td></tr>`).join("")}</table></details>` : ""}
       <div class="why">Observed results from BBGM's records. League averages are context only; this isn't a comparison against what would have happened without Autopilot.</div>
     </details>`;
@@ -746,12 +761,12 @@
     html += `<div class="card"><div class="dash">
       <label>Strategy<select data-set="teamMode" title="Auto picks a strategy from your roster, projections, cap and picks, and re-checks it at the start of the season, mid-season and in the offseason">${stratOpts.map(([k, l]) => `<option value="${k}"${k === curMode ? " selected" : ""}>${l}${k === "auto" && stratNow && stratNow.auto ? ` (${esc(stratNow.label)})` : ""}</option>`).join("")}</select></label>
       ${settings.features.autopilot ? `<label>Seasons<select data-set="apSeasons" title="How many seasons Autopilot plays before it stops (1–100)"${st.ap.running ? " disabled" : ""}>${Array.from({ length: 100 }, (_, i) => i + 1).map((n) => `<option value="${n}"${n === settings.apSeasons ? " selected" : ""}>${n}</option>`).join("")}</select></label>` : "<span></span>"}
-      <div class="full">${stratNow ? `<details class="ex"><summary>${esc(stratNow.label)}: ${esc(stratNow.goal)}</summary><ul>${(stratNow.reasons || []).map((r) => `<li>${esc(r)}</li>`).join("")}</ul></details>` : ""}</div>
+      <div class="full">${stratNow ? `${det("strategy", "ex")}<summary>${esc(stratNow.label)}: ${esc(stratNow.goal)}</summary><ul>${(stratNow.reasons || []).map((r) => `<li>${esc(r)}</li>`).join("")}</ul></details>` : ""}</div>
       <span class="mut">${waiting ? `<span class="warn">${waiting} move${waiting === 1 ? "" : "s"} waiting for your OK</span>` : "No approvals waiting"}</span>
       ${settings.features.autopilot ? `<span style="text-align:right">${st.ap.running ? `<button data-h="${on(() => stopAutopilot())}">Stop</button>` : `<button class="pri" data-h="${on(() => startAutopilot())}">Run Autopilot</button>`}</span>` : "<span></span>"}
     </div>
     ${settings.features.autopilot && st.ap.running ? `<div class="banner acc">${esc(st.ap.status || "Running…")}</div>` : st.ap.status ? `<div class="why">${esc(st.ap.status)}</div>` : ""}
-    <details><summary>Advanced settings</summary><div class="adv">
+    ${det("advanced")}<summary>Advanced settings</summary><div class="adv">
       <label>Manager mode<select data-set="managerMode"><option value="suggest"${settings.managerMode !== "auto" ? " selected" : ""}>Suggest (you approve)</option><option value="auto"${settings.managerMode === "auto" ? " selected" : ""}>Fully automatic</option></select></label>
       ${settings.features.autopilot ? `<label>Autopilot step<select data-set="apStep"><option value="day"${settings.apStep !== "week" ? " selected" : ""}>A day</option><option value="week"${settings.apStep === "week" ? " selected" : ""}>A week</option></select></label>
       <label>Stop at checkpoint<select data-set="apStopAt">${[["never", "Never"], ["playoffs", "Playoffs"], ["draft", "Draft"], ["freeAgency", "Free agency"]].map(([k, l]) => `<option value="${k}"${settings.apStopAt === k ? " selected" : ""}>${l}</option>`).join("")}</select></label>` : ""}
@@ -777,7 +792,7 @@
           const one = on(async (el) => { el.disabled = true; const [x] = st.pending.splice(i, 1); render(); await after(await F.runActions([x], { stateKey: planKey, check })); });
           const skip = on(() => { st.pending.splice(i, 1); render(); });
           return `<div class="card"><div class="hd"><span><span class="chip">${esc(a.kind)}</span> ${linkText(a.text, a.pids)}${a.approval ? `<div class="warn-line">Needs your OK: ${esc(a.why || "protected asset")}</div>` : ""}</span></div>
-            ${exHtml(a.ex)}<div class="actions"><button class="sm pri" data-h="${one}">Do it</button><button class="sm" data-h="${skip}">Skip</button></div></div>`;
+            ${exHtml(a.ex, `p:${a.sig}`)}<div class="actions"><button class="sm pri" data-h="${one}">Do it</button><button class="sm" data-h="${skip}">Skip</button></div></div>`;
         }).join("") + (st.ap.running ? "" : `<div class="actions"><button class="pri" data-h="${all}">Do all ${st.pending.length}</button></div>`);
       }
       html += `<div class="actions"><button class="sm" data-h="${refresh}">Re-plan</button></div>`;
@@ -787,7 +802,7 @@
     const clear = on(async () => { await S.clearLog(); st.log = []; render(); });
     html += st.log.length ? `<div class="log">${st.log.slice(0, 30).map((e) => {
       const u = e.undoKey != null && !e.undone ? on(async (el) => { el.disabled = true; try { await B.call("undoLog", "undo", e.undoKey); await S.markUndone(e.t); st.log = await S.getLog(); st.flash = "Undone."; } catch (err) { st.flash = `Can't undo: ${err.message}`; } invalidate(); render(); setTimeout(() => { st.flash = ""; render(); }, 6000); }) : null;
-      return `<div><span class="${e.kind === "error" ? "bad" : ""}">${linkText(e.text, e.pids)}${e.undone ? ` <small class="mut">(undone)</small>` : ""}${exHtml(e.ex)}</span><span>${u ? `<button class="sm" data-h="${u}">Undo</button> ` : ""}<time>${new Date(e.t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time></span></div>`;
+      return `<div><span class="${e.kind === "error" ? "bad" : ""}">${linkText(e.text, e.pids)}${e.undone ? ` <small class="mut">(undone)</small>` : ""}${exHtml(e.ex, `l:${e.t}`)}</span><span>${u ? `<button class="sm" data-h="${u}">Undo</button> ` : ""}<time>${new Date(e.t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time></span></div>`;
     }).join("")}</div><div class="actions"><button class="sm" data-h="${clear}">Clear log</button></div>` : `<div class="msg">No actions yet.</div>`;
     return html;
   }

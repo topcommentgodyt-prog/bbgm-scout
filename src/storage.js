@@ -29,6 +29,24 @@
     badges: "draft", // "off" | "draft" | "everywhere"
     panelCollapsed: false,
     panelSide: "right",
+    teamMode: "auto", // "auto" (follow BBGM's team strategy) | "contend" | "balanced" | "rebuild"
+    features: { assistant: true, trades: true, targets: true, freeAgents: true, drafter: false, manager: false, autopilot: false },
+    tradeOnGameDay: true,
+    tradeOnTradePage: true,
+    draftMode: "suggest", // "suggest" | "auto"
+    draftTradeUp: false,
+    managerMode: "suggest", // "suggest" (you approve each action) | "auto"
+    manage: { finances: true, roster: true, minutes: true, resign: true, signings: true, releases: true, trades: true },
+    financeStyle: "balanced", // "win" | "balanced" | "profit"
+    tradeMinMov: 0.5, // minimum team-rating (MOV) improvement for an automatic trade
+    tradeEveryDays: 1,
+    rotationSize: 10,
+    tank: false,
+    apStep: "day", // "day" | "week"
+    apSeasons: 1,
+    apStopAt: "never", // "never" | "playoffs" | "draft" | "freeAgency"
+    claudeEnabled: false,
+    claudeModel: "claude-opus-5-5",
   };
 
   let lastError = null;
@@ -61,7 +79,10 @@
 
   async function getSettings() {
     const { settings } = await get("settings");
-    return { ...DEFAULT_SETTINGS, ...(settings || {}) };
+    const s = { ...DEFAULT_SETTINGS, ...(settings || {}) };
+    s.features = { ...DEFAULT_SETTINGS.features, ...((settings && settings.features) || {}) };
+    s.manage = { ...DEFAULT_SETTINGS.manage, ...((settings && settings.manage) || {}) };
+    return s;
   }
   async function saveSettings(patch) {
     const cur = await getSettings();
@@ -123,12 +144,23 @@
     return { mode: "sync", text: "Synced", detail: used != null ? `${(used / 1024).toFixed(1)} KB of 100 KB used` : "" };
   }
 
+  // ---- Device-only storage (never synced): action log, API key, bookkeeping ----
+  const localGet = async (k) => { try { return (await local.get(k))[k]; } catch (e) { return undefined; } };
+  const localSet = async (k, v) => { try { await local.set({ [k]: v }); } catch (e) { /* ignore */ } };
+  async function addLog(entry) {
+    const log = (await localGet("actionLog")) || [];
+    log.unshift({ t: Date.now(), ...entry });
+    await localSet("actionLog", log.slice(0, 200));
+  }
+  const getLog = async () => (await localGet("actionLog")) || [];
+  const clearLog = () => localSet("actionLog", []);
+
   function onChange(cb) {
     if (api && api.storage && api.storage.onChanged) api.storage.onChanged.addListener(cb);
   }
 
   root.BBGMScoutStorage = {
     MODEL_VERSION, DEFAULT_SETTINGS, getSettings, saveSettings, getPins, isPinned, togglePin, refreshPin,
-    listReports, saveReport, deleteReport, status, onChange,
+    listReports, saveReport, deleteReport, status, onChange, localGet, localSet, addLog, getLog, clearLog,
   };
 })(globalThis);

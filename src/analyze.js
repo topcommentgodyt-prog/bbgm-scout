@@ -9,7 +9,7 @@
 
   const fuzzed = (v, f) => Math.round(Math.max(0, Math.min(100, v + f)));
 
-  function analyze(ctx, p, settings, { nSims, full = true } = {}) {
+  function analyze(ctx, p, settings, { nSims, full = true, maxAge } = {}) {
     const rows = (p.ratings || []).filter((r) => typeof r.season === "number").sort((a, b) => a.season - b.season);
     if (!rows.length) throw new Error("Player has no ratings");
     const cur = rows[rows.length - 1];
@@ -30,7 +30,7 @@
     const seed = E.hashSeed(p.pid, cur.season, settings.respectFog ? 1 : 0);
     const fc = E.forecast({
       ratings: shown, age, coachLevel, fog, locked: !!cur.locked,
-      nSims: nSims || settings.nSims, seed, bustThreshold,
+      nSims: nSims || settings.nSims, seed, bustThreshold, maxAge,
     });
     const summary = {
       pid: p.pid,
@@ -40,7 +40,7 @@
       peakAge: fc.peakAge, peakOvr: fc.peakOvr, ceiling: fc.ceiling,
       breakout: fc.breakout, decline: fc.decline, bust: fc.bust,
     };
-    if (!full) return { summary, fc };
+    if (!full) return { summary, fc, fog, coachLevel };
 
     // History: rows the user could see (fuzzed the same way the game shows them).
     const histRows = rows.map((r) => {

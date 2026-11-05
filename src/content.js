@@ -1,23 +1,32 @@
 /*
- * BBGM Scout – content script: player outlook panel + inline peak badges.
+ * BBGM Scout – content script: the in-page dock (Outlook, AI, Trades, Targets,
+ * Free Agents, Draft, Manager/Autopilot) and inline peak badges.
  */
 (function () {
   "use strict";
   const S = globalThis.BBGMScoutStorage;
   const D = globalThis.BBGMScoutData;
   const A = globalThis.BBGMScoutAnalyze;
+  const B = globalThis.BBGMScoutBridge;
+  const LG = globalThis.BBGMScoutLeague;
+  const F = globalThis.BBGMScoutFeatures;
+  const ext = globalThis.chrome || globalThis.browser;
 
   const PLAYER_RE = /\/l\/(\d+)\/player\/(\d+)/;
   const LEAGUE_RE = /\/l\/(\d+)(?:\/|$)/;
   const DRAFT_RE = /\/l\/\d+\/(draft|draft_scouting|draft_history)(\/|$)/;
+  const TRADE_RE = /\/l\/\d+\/trade(\/|$|\?)/;
 
   let settings = { ...S.DEFAULT_SETTINGS };
   let lastUrl = "";
-  let current = null; // { lid, pid, result }
-  const badgeCache = new Map(); // `${lid}:${pid}:${respectFog}` -> summary
+  const badgeCache = new Map();
 
   const pct = (x) => (x == null ? "–" : `${Math.round(x * 100)}%`);
-  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  const num = (x, d = 1) => (x >= 0 ? "+" : "") + x.toFixed(d);
+  const lidNow = () => { const m = location.pathname.match(LEAGUE_RE); return m ? Number(m[1]) : null; };
+  const pidNow = () => { const m = location.pathname.match(PLAYER_RE); return m ? Number(m[2]) : null; };
+  const plink = (pid, label) => `<a href="/l/${lidNow()}/player/${pid}">${esc(label)}</a>`;
 
   function isDark() {
     const t = document.documentElement.getAttribute("data-bs-theme") || document.body.getAttribute("data-bs-theme");
@@ -25,37 +34,101 @@
     return window.matchMedia("(prefers-color-scheme: dark)").matches;
   }
 
-  // ---------------- Panel ----------------
+  // ======================================================================
+  // State
+  // ======================================================================
+  const st = {
+    tab: "outlook",
+    outlook: null, // { lid, pid, loading, error, result, pinned }
+    poll: null,
+    pollKey: "",
+    L: null, LKey: "", building: null, buildMsg: "",
+    trades: { ideas: null, note: "", busy: false, msg: "", forKey: "" },
+    current: null, // evaluation of the trade on the trade screen
+    offer: null, // targets: built offer
+    targetsBusy: null,
+    pending: null, // manager suggestions
+    log: [],
+    ap: { running: false, status: "", startSeason: null, stopReq: false },
+    ask: { q: "", busy: false, answer: "", error: "" },
+    flash: "",
+  };
+  const handlers = new Map();
+  let hid = 0;
+  const on = (fn) => { const id = `h${++hid}`; handlers.set(id, fn); return id; };
+
+  const TABS = [
+    ["outlook", "Outlook", () => true],
+    ["assistant", "AI", () => settings.features.assistant],
+    ["trades", "Trades", () => settings.features.trades],
+    ["targets", "Targets", () => settings.features.targets],
+    ["fa", "FA", () => settings.features.freeAgents],
+    ["draft", "Draft", () => settings.features.drafter],
+    ["manager", "Manager", () => settings.features.manager || settings.features.autopilot],
+  ];
+  const needsBridge = () => TABS.slice(1).some(([, , en]) => en());
+
+  // ======================================================================
+  // League model (live snapshot through BBGM's engine)
+  // ======================================================================
+  const keyOf = (p) => (p ? `${p.season}:${p.phase}:${p.gp}:${p.onClock}` : "");
+  async function getL(force) {
+    const k = st.pollKey;
+    if (!force && st.L && st.LKey === k) return st.L;
+    if (st.building) return st.building;
+    st.building = (async () => {
+      st.buildMsg = "Reading league…"; render();
+      const snap = await B.snapshot();
+      const L = await LG.build(snap, settings, (f) => { st.buildMsg = `Analyzing players… ${Math.round(f * 100)}%`; render(); });
+      st.L = L; st.LKey = k;
+      return L;
+    })();
+    try { return await st.building; } finally { st.building = null; st.buildMsg = ""; }
+  }
+  const invalidate = () => { st.L = null; st.LKey = ""; };
+
+  // ======================================================================
+  // Dock shell
+  // ======================================================================
   let host, shadow;
-  function ensurePanel() {
+  function ensureHost() {
     if (host && document.body.contains(host)) return;
     host = document.createElement("div");
     host.id = "bbgm-scout-host";
     shadow = host.attachShadow({ mode: "open" });
+    shadow.addEventListener("click", async (e) => {
+      const el = e.target.closest("[data-h]");
+      if (!el) return;
+      const fn = handlers.get(el.dataset.h);
+      if (fn) { e.preventDefault(); await fn(el); }
+    });
+    shadow.addEventListener("input", (e) => { if (e.target.id === "askq") st.ask.q = e.target.value; });
     document.body.appendChild(host);
   }
-  function removePanel() {
-    if (host) host.remove();
-    host = shadow = null;
-  }
+  function removeHost() { if (host) host.remove(); host = shadow = null; }
 
   const CSS = `
   :host { all: initial; }
-  .wrap { position: fixed; bottom: 16px; z-index: 2147483000; width: 290px; max-width: calc(100vw - 32px);
+  .wrap { position: fixed; bottom: 16px; z-index: 2147483000; width: 340px; max-width: calc(100vw - 32px);
     font: 13px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     --bg:#fff; --fg:#1d2330; --mut:#667085; --line:#e4e7ec; --chip:#f2f4f7; --acc:#2f6fed; --good:#12804a; --bad:#c4321c; --warn:#a15c00;
     background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 12px;
-    box-shadow: 0 8px 28px rgba(16,24,40,.18); overflow: hidden; }
+    box-shadow: 0 8px 28px rgba(16,24,40,.18); overflow: hidden; display:flex; flex-direction:column; max-height: min(78vh, 720px); }
   .wrap.dark { --bg:#1b1f27; --fg:#e7e9ee; --mut:#98a2b3; --line:#2f3542; --chip:#262b36; --acc:#6f9bff; --good:#4cc38a; --bad:#ff7a66; --warn:#f5b04c; }
   .wrap.right { right: 16px; } .wrap.left { left: 16px; }
-  header { display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid var(--line); cursor:pointer; user-select:none; }
-  header b { font-size:13px; letter-spacing:.2px; }
+  a { color: var(--acc); text-decoration: none; } a:hover { text-decoration: underline; }
+  header { display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid var(--line); cursor:pointer; user-select:none; flex:none; }
+  header b { font-size:13px; }
   .sync { margin-left:auto; font-size:11px; color:var(--mut); display:flex; align-items:center; gap:4px; }
   .dot { width:7px; height:7px; border-radius:50%; background:var(--good); } .dot.local { background:var(--warn); } .dot.error { background:var(--bad); }
   .caret { color:var(--mut); font-size:11px; }
-  .body { padding:10px 12px 12px; }
-  .collapsed .body { display:none; }
-  .title { display:flex; justify-content:space-between; align-items:baseline; }
+  nav { display:flex; flex-wrap:wrap; gap:0 1px; padding:4px 6px 0; border-bottom:1px solid var(--line); flex:none; }
+  nav button { border:0; background:none; color:var(--mut); font:inherit; font-size:12px; padding:5px 7px; cursor:pointer; border-bottom:2px solid transparent; white-space:nowrap; border-radius:0; flex:none; }
+  nav button.active { color:var(--fg); border-color:var(--acc); }
+  nav .n { display:inline-block; min-width:14px; padding:0 4px; margin-left:3px; border-radius:999px; background:var(--acc); color:#fff; font-size:10px; line-height:14px; }
+  .body { padding:10px 12px 12px; overflow-y:auto; }
+  .collapsed nav, .collapsed .body { display:none; }
+  .title { display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
   .name { font-weight:600; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .sub { color:var(--mut); font-size:12px; margin-top:1px; }
   .tag { font-size:11px; font-weight:600; padding:2px 8px; border-radius:999px; background:var(--chip); white-space:nowrap; }
@@ -65,23 +138,103 @@
   .big small { display:block; color:var(--mut); font-size:10.5px; text-transform:uppercase; letter-spacing:.4px; }
   .big strong { display:block; font-size:22px; font-variant-numeric:tabular-nums; line-height:1.15; }
   .big em { display:block; font-style:normal; color:var(--mut); font-size:10.5px; }
-  .rows div { display:flex; justify-content:space-between; padding:3px 0; border-bottom:1px dashed var(--line); }
-  .rows div:last-child { border-bottom:0; }
+  .rows > div { display:flex; justify-content:space-between; gap:8px; padding:3px 0; border-bottom:1px dashed var(--line); }
+  .rows > div:last-child { border-bottom:0; }
   .rows span:first-child { color:var(--mut); white-space:nowrap; }
-  .rows span:last-child { font-weight:600; font-variant-numeric:tabular-nums; }
-  .good { color:var(--good); } .bad { color:var(--bad); } .warn { color:var(--warn); }
+  .rows span:last-child { font-weight:600; font-variant-numeric:tabular-nums; text-align:right; }
+  .good { color:var(--good); } .bad { color:var(--bad); } .warn { color:var(--warn); } .mut { color:var(--mut); }
   svg { display:block; width:100%; height:46px; margin:8px 0 2px; }
   .legend { display:flex; gap:10px; font-size:10.5px; color:var(--mut); }
   .legend i { display:inline-block; width:10px; height:2px; vertical-align:middle; margin-right:3px; background:var(--fg); }
   .legend i.f { background:var(--acc); }
   .why { color:var(--mut); font-size:11px; margin-top:6px; }
-  .actions { display:flex; gap:6px; margin-top:10px; }
-  button { flex:1; font:inherit; font-size:12px; padding:5px 8px; border-radius:7px; border:1px solid var(--line); background:var(--bg); color:var(--fg); cursor:pointer; }
+  .actions { display:flex; gap:6px; margin-top:10px; flex-wrap:wrap; }
+  button { font:inherit; font-size:12px; padding:5px 8px; border-radius:7px; border:1px solid var(--line); background:var(--bg); color:var(--fg); cursor:pointer; }
   button:hover { border-color:var(--acc); }
-  button.on { background:var(--acc); color:#fff; border-color:var(--acc); }
+  button.on, button.pri { background:var(--acc); color:#fff; border-color:var(--acc); }
+  button.sm { font-size:11px; padding:2px 7px; }
+  button:disabled { opacity:.5; cursor:default; }
+  .actions button { flex:1; }
+  .card .actions { margin-top:6px; } .card .actions button { flex:none; }
   .msg { color:var(--mut); padding:4px 0; }
+  .card { border:1px solid var(--line); border-radius:9px; padding:8px 9px; margin-bottom:8px; }
+  .card .hd { display:flex; justify-content:space-between; align-items:center; gap:6px; }
+  .card ul { margin:4px 0 0; padding-left:16px; } .card li { margin:2px 0; }
+  .h { font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--mut); margin:10px 0 5px; }
+  .h:first-child { margin-top:0; }
+  table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; font-size:12px; }
+  th { text-align:right; font-weight:500; color:var(--mut); font-size:10.5px; padding:2px 3px; border-bottom:1px solid var(--line); }
+  td { text-align:right; padding:4px 3px; border-bottom:1px solid var(--line); }
+  th:first-child, td:first-child { text-align:left; }
+  td small { display:block; color:var(--mut); font-size:10.5px; }
+  .chip { display:inline-block; font-size:10.5px; font-weight:600; padding:1px 6px; border-radius:999px; background:var(--chip); }
+  .chip.gem { color:var(--good); } .chip.over { color:var(--bad); }
+  textarea { width:100%; box-sizing:border-box; font:inherit; font-size:12px; border:1px solid var(--line); border-radius:7px; padding:6px; background:var(--bg); color:var(--fg); resize:vertical; min-height:46px; }
+  .answer { white-space:pre-wrap; background:var(--chip); border-radius:8px; padding:8px; margin-top:6px; }
+  .banner { background:var(--chip); border-radius:8px; padding:7px 9px; margin-bottom:8px; }
+  .banner.acc { border-left:3px solid var(--acc); }
+  .log div { display:flex; gap:6px; justify-content:space-between; padding:3px 0; border-bottom:1px dashed var(--line); font-size:11.5px; }
+  .log time { color:var(--mut); flex:none; }
   `;
 
+  function tabCount(id) {
+    if (id === "trades" && st.trades.ideas) return st.trades.ideas.length;
+    if (id === "manager" && st.pending) return st.pending.length;
+    if (id === "draft" && st.poll && st.poll.phase === 5 && st.poll.onClock === st.poll.userTid) return "!";
+    return 0;
+  }
+
+  async function render() {
+    if (!lidNow()) return removeHost();
+    ensureHost();
+    handlers.clear();
+    const sync = await S.status();
+    const tabs = TABS.filter(([, , en]) => en());
+    if (!tabs.some(([id]) => id === st.tab)) st.tab = pidNow() ? "outlook" : tabs[tabs.length > 1 ? 1 : 0][0];
+    const hdr = on(async () => { settings.panelCollapsed = !settings.panelCollapsed; await S.saveSettings({ panelCollapsed: settings.panelCollapsed }); render(); });
+    const nav = tabs.length > 1 ? `<nav>${tabs.map(([id, label]) => {
+      const n = tabCount(id);
+      return `<button class="${st.tab === id ? "active" : ""}" data-h="${on(() => { st.tab = id; render(); onTabOpen(id); })}">${label}${n ? `<span class="n">${n}</span>` : ""}</button>`;
+    }).join("")}</nav>` : "";
+    let body = "";
+    try { body = bodyFor(st.tab); } catch (e) { body = `<div class="msg">${esc(e.message)}</div>`; }
+    shadow.innerHTML = `<style>${CSS}</style>
+      <div class="wrap ${settings.panelSide === "left" ? "left" : "right"}${isDark() ? " dark" : ""}${settings.panelCollapsed ? " collapsed" : ""}">
+        <header data-h="${hdr}"><b>BBGM Scout</b>${st.ap.running ? `<span class="chip">Autopilot</span>` : ""}<span class="sync" title="${esc(sync.detail)}"><span class="dot ${sync.mode}"></span>${esc(sync.text)}</span><span class="caret">${settings.panelCollapsed ? "▲" : "▼"}</span></header>
+        ${nav}
+        <div class="body">${st.flash ? `<div class="banner acc">${esc(st.flash)}</div>` : ""}${body}</div>
+      </div>`;
+  }
+
+  function bodyFor(tab) {
+    switch (tab) {
+      case "outlook": return outlookBody();
+      case "assistant": return assistantBody();
+      case "trades": return tradesBody();
+      case "targets": return targetsBody();
+      case "fa": return faBody();
+      case "draft": return draftBody();
+      case "manager": return managerBody();
+      default: return "";
+    }
+  }
+
+  const needL = () => {
+    if (st.L) return null;
+    if (!st.poll || !st.poll.inLeague) return `<div class="msg">Waiting for BBGM to load the league…</div>`;
+    if (!st.building) getL().then(render, (e) => { st.flash = e.message; render(); });
+    return `<div class="msg">${esc(st.buildMsg || "Reading league…")}</div>`;
+  };
+
+  async function onTabOpen(id) {
+    if (id === "trades" && !st.trades.ideas && !st.trades.busy) refreshTrades();
+    if (id === "manager" && settings.features.manager && !st.pending) refreshPending();
+    if (id === "manager") { st.log = await S.getLog(); render(); }
+  }
+
+  // ======================================================================
+  // Outlook tab (player page)
+  // ======================================================================
   function sparkline(res) {
     const hist = res.ovrHistory.slice(-6);
     const fut = res.fc.meanPath.slice(0, Math.max(2, res.fc.peakAgeRange[1] - res.summary.age + 3));
@@ -89,104 +242,478 @@
     const ages = pts.map((p) => p.age), ovrs = pts.map((p) => p.ovr);
     const a0 = Math.min(...ages), a1 = Math.max(...ages);
     const o0 = Math.min(...ovrs, res.summary.ceiling) - 2, o1 = Math.max(...ovrs, res.summary.ceiling) + 2;
-    const W = 266, H = 46;
+    const W = 316, H = 46;
     const x = (a) => ((a - a0) / Math.max(1, a1 - a0)) * (W - 4) + 2;
     const y = (o) => H - 3 - ((o - o0) / Math.max(1, o1 - o0)) * (H - 6);
     const line = (arr) => arr.map((p, i) => `${i ? "L" : "M"}${x(p.age).toFixed(1)},${y(p.ovr).toFixed(1)}`).join("");
     const ceilY = y(res.summary.ceiling).toFixed(1);
+    const peak = res.fc.meanPath.find((p) => p.age === res.summary.peakAge);
     return `<svg viewBox="0 0 ${W} ${H}" aria-label="OVR history and forecast">
       <line x1="2" x2="${W - 2}" y1="${ceilY}" y2="${ceilY}" stroke="currentColor" stroke-opacity=".25" stroke-dasharray="3 3"/>
       ${hist.length > 1 ? `<path d="${line(hist)}" fill="none" stroke="currentColor" stroke-width="1.6"/>` : ""}
       <path d="${line(fut)}" fill="none" stroke="var(--acc)" stroke-width="1.8" stroke-dasharray="4 2"/>
-      <circle cx="${x(res.summary.peakAge)}" cy="${y(res.fc.meanPath.find((p) => p.age === res.summary.peakAge)?.ovr ?? res.summary.peakOvr)}" r="2.6" fill="var(--acc)"/>
+      <circle cx="${x(res.summary.peakAge)}" cy="${y(peak ? peak.ovr : res.summary.peakOvr)}" r="2.6" fill="var(--acc)"/>
     </svg>
     <div class="legend"><span><i></i>History</span><span><i class="f"></i>Avg forecast</span><span>- - Ceiling ${res.summary.ceiling}</span></div>`;
   }
 
-  async function renderPanel(state) {
-    ensurePanel();
-    const st = await S.status();
-    const dark = isDark() ? " dark" : "";
-    const col = settings.panelCollapsed ? " collapsed" : "";
-    let body;
-    if (state.loading) body = `<div class="msg">Reading league data…</div>`;
-    else if (state.error) body = `<div class="msg">${esc(state.error)}</div>`;
-    else {
-      const r = state.result, s = r.summary;
-      const tagCls = /upside|Rising/.test(s.label) ? "up" : /Declin/.test(s.label) ? "down" : "";
-      const trCls = s.trend === "Above expected" ? "good" : s.trend === "Below expected" ? "bad" : "";
-      const confCls = s.confidence === "High" ? "good" : s.confidence === "Low" ? "bad" : "warn";
-      const trendTip = r.trend.seasons.map((t) => `${t.season}: ${t.actual >= 0 ? "+" : ""}${t.actual} actual vs ${t.expected >= 0 ? "+" : ""}${t.expected.toFixed(1)} expected`).join("\n");
-      const bustTip = settings.bustMode === "fixed" ? `Peak OVR stays below ${settings.bustOvr}` : `Peak OVR stays below POT − ${settings.bustMargin} (${r.fc.bustThreshold})`;
-      body = `
-        <div class="title"><div class="name" title="${esc(s.name)}">${esc(s.name)}</div><span class="tag ${tagCls}">${esc(s.label)}</span></div>
-        <div class="sub">Age ${s.age} · OVR ${s.ovr} · POT ${s.pot}${s.pos ? ` · ${esc(s.pos)}` : ""}</div>
-        <div class="big">
-          <div title="Median age of career-high OVR (middle 50%: ${r.fc.peakAgeRange[0]}–${r.fc.peakAgeRange[1]})"><small>Peak age</small><strong>${s.peakAge}</strong><em>${r.fc.peakAgeRange[0]}–${r.fc.peakAgeRange[1]}</em></div>
-          <div title="Median career-high OVR (10th pct: ${r.fc.peakOvrLow})"><small>Peak OVR</small><strong>${s.peakOvr}</strong><em>low ${r.fc.peakOvrLow}</em></div>
-          <div title="90th-percentile career-high OVR"><small>Ceiling</small><strong>${s.ceiling}</strong><em>90th pct</em></div>
-        </div>
-        <div class="rows">
-          <div title="Chance of gaining 5+ OVR next season"><span>Breakout chance</span><span class="${s.breakout >= 0.2 ? "good" : ""}">${pct(s.breakout)}</span></div>
-          <div title="Chance of losing 5+ OVR next season"><span>Decline risk</span><span class="${s.decline >= 0.1 ? "bad" : ""}">${pct(s.decline)}</span></div>
-          <div title="${esc(bustTip)}"><span>Bust risk</span><span class="${s.bust >= 0.5 ? "bad" : ""}">${pct(s.bust)}</span></div>
-          <div title="${esc(r.trend.diff != null ? `Average ${r.trend.diff >= 0 ? "+" : ""}${r.trend.diff.toFixed(1)} OVR/yr vs. expected\n${trendTip}` : "Needs at least one completed season")}\n\nBBGM progression is random each year, so this describes the past; it doesn't change the forecast."><span>Development trend</span><span class="${trCls}">${esc(s.trend)}</span></div>
-          <div title="${esc(r.confidence.reasons.join("\n"))}"><span>Confidence</span><span class="${confCls}">${s.confidence} · ${r.confidence.score}</span></div>
-        </div>
-        ${sparkline(r)}
-        <div class="why">${esc(r.confidence.reasons[0])}${r.fog ? " · fog on" : ""} · ${r.fc.nSims.toLocaleString()} sims</div>
-        <div class="actions">
-          <button id="pin" class="${state.pinned ? "on" : ""}">${state.pinned ? "★ Pinned" : "☆ Pin"}</button>
-          <button id="save">Save report</button>
-        </div>`;
-    }
-    shadow.innerHTML = `<style>${CSS}</style>
-      <div class="wrap ${settings.panelSide === "left" ? "left" : "right"}${dark}${col}">
-        <header id="hdr"><b>BBGM Scout</b><span class="sync" title="${esc(st.detail)}"><span class="dot ${st.mode}"></span>${esc(st.text)}</span><span class="caret">${settings.panelCollapsed ? "▲" : "▼"}</span></header>
-        <div class="body">${body}</div>
-      </div>`;
-    shadow.getElementById("hdr").onclick = async () => {
-      settings.panelCollapsed = !settings.panelCollapsed;
-      await S.saveSettings({ panelCollapsed: settings.panelCollapsed });
-      renderPanel(state);
-    };
-    const pinBtn = shadow.getElementById("pin");
-    if (pinBtn) pinBtn.onclick = async () => {
-      state.pinned = await S.togglePin(pinSummary(state));
-      renderPanel(state);
-    };
-    const saveBtn = shadow.getElementById("save");
-    if (saveBtn) saveBtn.onclick = async () => {
-      const note = window.prompt("Optional scouting note for this report:", "") ;
+  function outlookBody() {
+    const o = st.outlook;
+    if (!o) return `<div class="msg">Open any player's page to see their development outlook.${settings.features.assistant ? " The AI tab lists hidden gems around the league." : ""}</div>`;
+    if (o.loading) return `<div class="msg">Reading league data…</div>`;
+    if (o.error) return `<div class="msg">${esc(o.error)}</div>`;
+    const r = o.result, s = r.summary;
+    const tagCls = /upside|Rising/.test(s.label) ? "up" : /Declin/.test(s.label) ? "down" : "";
+    const trCls = s.trend === "Above expected" ? "good" : s.trend === "Below expected" ? "bad" : "";
+    const confCls = s.confidence === "High" ? "good" : s.confidence === "Low" ? "bad" : "warn";
+    const trendTip = r.trend.seasons.map((t) => `${t.season}: ${t.actual >= 0 ? "+" : ""}${t.actual} actual vs ${t.expected >= 0 ? "+" : ""}${t.expected.toFixed(1)} expected`).join("\n");
+    const bustTip = settings.bustMode === "fixed" ? `Peak OVR stays below ${settings.bustOvr}` : `Peak OVR stays below POT − ${settings.bustMargin} (${r.fc.bustThreshold})`;
+    const gem = st.L && settings.features.assistant ? F.gemVerdict(st.L, o.pid) : null;
+    const pin = on(async () => { o.pinned = await S.togglePin(pinSummary(o)); render(); });
+    const save = on(async (el) => {
+      const note = window.prompt("Optional scouting note for this report:", "");
       if (note === null) return;
-      const ok = await S.saveReport({ ...pinSummary(state), note, savedAt: Date.now() });
-      saveBtn.textContent = ok ? "Saved ✓" : "Save failed";
-      setTimeout(() => renderPanel(state), 1500);
-    };
+      const ok = await S.saveReport({ ...pinSummary(o), note, savedAt: Date.now() });
+      el.textContent = ok ? "Saved ✓" : "Save failed";
+      setTimeout(render, 1500);
+    });
+    return `
+      <div class="title"><div class="name" title="${esc(s.name)}">${esc(s.name)}</div><span class="tag ${tagCls}">${esc(s.label)}</span></div>
+      <div class="sub">Age ${s.age} · OVR ${s.ovr} · POT ${s.pot}${s.pos ? ` · ${esc(s.pos)}` : ""}${gem ? ` · <span class="chip ${gem.score >= 7 ? "gem" : gem.score <= -10 ? "over" : ""}" title="See the AI tab">${esc(gem.verdict)}</span>` : ""}</div>
+      <div class="big">
+        <div title="Median age of career-high OVR (middle 50%: ${r.fc.peakAgeRange[0]}–${r.fc.peakAgeRange[1]})"><small>Peak age</small><strong>${s.peakAge}</strong><em>${r.fc.peakAgeRange[0]}–${r.fc.peakAgeRange[1]}</em></div>
+        <div title="Median career-high OVR (10th pct: ${r.fc.peakOvrLow})"><small>Peak OVR</small><strong>${s.peakOvr}</strong><em>low ${r.fc.peakOvrLow}</em></div>
+        <div title="90th-percentile career-high OVR"><small>Ceiling</small><strong>${s.ceiling}</strong><em>90th pct</em></div>
+      </div>
+      <div class="rows">
+        <div title="Chance of gaining 5+ OVR next season"><span>Breakout chance</span><span class="${s.breakout >= 0.2 ? "good" : ""}">${pct(s.breakout)}</span></div>
+        <div title="Chance of losing 5+ OVR next season"><span>Decline risk</span><span class="${s.decline >= 0.1 ? "bad" : ""}">${pct(s.decline)}</span></div>
+        <div title="${esc(bustTip)}"><span>Bust risk</span><span class="${s.bust >= 0.5 ? "bad" : ""}">${pct(s.bust)}</span></div>
+        <div title="${esc(r.trend.diff != null ? `Average ${num(r.trend.diff)} OVR/yr vs. expected\n${trendTip}` : "Needs at least one completed season")}\n\nBBGM progression is random each year, so this describes the past; it doesn't change the forecast."><span>Development trend</span><span class="${trCls}">${esc(s.trend)}</span></div>
+        <div title="${esc(r.confidence.reasons.join("\n"))}"><span>Confidence</span><span class="${confCls}">${s.confidence} · ${r.confidence.score}</span></div>
+      </div>
+      ${sparkline(r)}
+      <div class="why">${esc(r.confidence.reasons[0])}${r.fog ? " · fog on" : ""} · ${r.fc.nSims.toLocaleString()} sims</div>
+      <div class="actions">
+        <button data-h="${pin}" class="${o.pinned ? "on" : ""}">${o.pinned ? "★ Pinned" : "☆ Pin"}</button>
+        <button data-h="${save}">Save report</button>
+      </div>`;
   }
-
-  function pinSummary(state) {
-    const s = state.result.summary;
-    return { lid: state.lid, ...s, label: s.label, savedAt: Date.now(), url: location.pathname };
+  function pinSummary(o) {
+    const s = o.result.summary;
+    return { lid: o.lid, ...s, label: s.label, savedAt: Date.now(), url: location.pathname };
   }
-
   async function showPlayer(lid, pid) {
-    const state = { lid, pid, loading: true };
-    current = state;
-    renderPanel(state);
+    const o = { lid, pid, loading: true };
+    st.outlook = o;
+    st.tab = "outlook";
+    render();
     try {
+      // Ask BBGM to write its in-memory changes to the database first, so the numbers are current.
+      await B.call("main", "idbCacheFlush", undefined, 5000).catch(() => {});
       const ctx = await D.load(lid, [pid]);
       const p = ctx.players.get(pid);
-      if (!p) throw new Error("This player isn't in the saved league data yet. BBGM saves to your browser periodically. Try again after the next game day or phase change.");
-      if (current !== state) return;
-      state.result = A.analyze(ctx, p, settings);
-      state.pinned = await S.isPinned(lid, pid);
-      if (state.pinned) S.refreshPin(pinSummary(state));
+      if (!p) throw new Error("This player isn't in the saved league data yet. Try again after the next game day.");
+      if (st.outlook !== o) return;
+      o.result = A.analyze(ctx, p, settings);
+      o.pinned = await S.isPinned(lid, pid);
+      if (o.pinned) S.refreshPin(pinSummary(o));
     } catch (e) {
-      state.error = e.message || String(e);
+      o.error = e.message || String(e);
     }
-    state.loading = false;
-    if (current === state) renderPanel(state);
+    o.loading = false;
+    if (st.outlook === o) render();
+  }
+
+  // ======================================================================
+  // AI tab: hidden gems + Ask Claude
+  // ======================================================================
+  const verdictChip = (g) => `<span class="chip ${g.score >= 7 ? "gem" : g.score <= -10 ? "over" : ""}">${esc(g.verdict)} ${g.score >= 0 ? "+" : ""}${g.score}</span>`;
+  function assistantBody() {
+    const wait = needL();
+    if (wait) return wait;
+    const L = st.L;
+    let html = "";
+    const pid = pidNow();
+    if (pid && L.byPid.get(pid)) {
+      const g = F.gemVerdict(L, pid);
+      html += `<div class="h">Is this player a hidden gem?</div>
+        <div class="card"><div class="hd"><b>${esc(g.name)}</b>${verdictChip(g)}</div>
+        <ul>${g.reasons.map((r) => `<li>${esc(r)}</li>`).join("")}</ul></div>`;
+    }
+    const gems = F.gemList(L, 8);
+    html += `<div class="h">Hidden gems around the league</div>`;
+    html += gems.length ? gems.map((g) => {
+      const t = L.teams.get(g.tid);
+      const where = g.tid === -1 ? "Free agent" : g.tid < -1 ? "Draft prospect" : t ? t.abbrev : "";
+      return `<div class="card"><div class="hd">${plink(g.pid, g.name)} ${verdictChip(g)}</div>
+        <div class="sub">${esc(where)} · age ${g.summary.age} · OVR ${g.summary.ovr}/${g.summary.pot} → peak ${g.summary.peakOvr}, ceiling ${g.summary.ceiling}</div>
+        <div class="why">${esc(g.reasons.slice(1, 3).join(" ") || g.reasons[0])}</div></div>`;
+    }).join("") : `<div class="msg">No clear hidden gems right now.</div>`;
+    html += `<div class="h">Ask Claude</div>`;
+    if (!settings.claudeEnabled) {
+      html += `<div class="msg">Turn on "Ask Claude" in BBGM Scout settings and add an Anthropic API key to ask free-form questions (for example, "Who should I build around?").</div>`;
+    } else {
+      const ask = on(() => askClaude());
+      html += `<textarea id="askq" placeholder="e.g. Is this player worth a first-round pick? Who on my team should I sell?">${esc(st.ask.q)}</textarea>
+        <div class="actions"><button class="pri" data-h="${ask}" ${st.ask.busy ? "disabled" : ""}>${st.ask.busy ? "Thinking…" : "Ask"}</button></div>
+        ${st.ask.error ? `<div class="msg bad">${esc(st.ask.error)}</div>` : ""}
+        ${st.ask.answer ? `<div class="answer">${esc(st.ask.answer)}</div>` : ""}
+        <div class="why">Sends your question and a summary of the relevant players (not your league file) to the Claude API using your key. Model: ${esc(settings.claudeModel)}.</div>`;
+    }
+    return html;
+  }
+  async function askClaude() {
+    const L = st.L;
+    if (!L || !st.ask.q.trim()) return;
+    st.ask.busy = true; st.ask.error = ""; st.ask.answer = ""; render();
+    const brief = (pid) => {
+      const v = L.byPid.get(pid);
+      if (!v) return null;
+      const s = v.summary;
+      return { name: s.name, team: (L.teams.get(v.p.tid) || {}).abbrev || (v.p.tid === -1 ? "FA" : "prospect"), age: s.age, pos: s.pos, ovr: s.ovr, pot: s.pot,
+        peakOvr: s.peakOvr, peakAge: s.peakAge, ceiling: s.ceiling, breakout: s.breakout, decline: s.decline,
+        contract: v.p.contract ? { amount: v.p.contract.amount, exp: v.p.contract.exp } : null, gemScore: Math.round(v.gemScore), valueForYourTeam: +v.surplus.toFixed(1) };
+    };
+    const pid = pidNow();
+    const context = {
+      season: L.snap.season, phase: L.snap.phase, yourTeam: L.user ? `${L.user.region} ${L.user.name}` : "", strategy: L.mode,
+      record: L.user ? `${L.user.won}-${L.user.lost}` : "", cap: L.capInfo,
+      focusPlayer: pid ? { ...brief(pid), verdict: F.gemVerdict(L, pid) } : null,
+      yourRoster: L.roster(L.snap.userTid).map((p) => brief(p.pid)).filter(Boolean),
+      hiddenGems: F.gemList(L, 10).map((g) => brief(g.pid)),
+      topFreeAgents: F.freeAgents(L).slice(0, 8).map((f) => ({ ...brief(f.pid), asking: f.ask })),
+    };
+    try {
+      const r = await ext.runtime.sendMessage({ type: "bbgmScout:askClaude", question: st.ask.q, context, model: settings.claudeModel });
+      if (r && r.error) st.ask.error = r.error;
+      else st.ask.answer = (r && r.text) || "";
+    } catch (e) {
+      st.ask.error = e.message;
+    }
+    st.ask.busy = false; render();
+  }
+
+  // ======================================================================
+  // Trades tab
+  // ======================================================================
+  async function refreshTrades() {
+    if (st.trades.busy) return;
+    st.trades.busy = true; st.trades.msg = "Reading league…"; render();
+    try {
+      const L = await getL();
+      const r = await F.tradeIdeas(L, { shop: 3, onProgress: (m) => { st.trades.msg = m; render(); } });
+      st.trades.ideas = r.ideas; st.trades.note = r.note; st.trades.forKey = st.pollKey;
+    } catch (e) {
+      st.trades.note = e.message;
+    }
+    st.trades.busy = false; st.trades.msg = ""; render();
+  }
+  function tradeCard(L, idea, { propose = true } = {}) {
+    const d = idea.desc;
+    const go = on(async (el) => {
+      el.disabled = true; el.textContent = "Proposing…";
+      try {
+        const r = await F.proposeTrade(L, idea.teams);
+        st.flash = r && r.accepted ? `Trade accepted. You can undo it from the Manager tab or the game's notification.` : `Rejected: ${(r && r.message) || "the AI changed its mind"}`;
+      } catch (e) { st.flash = e.message; }
+      st.trades.ideas = null; invalidate(); render();
+      setTimeout(() => { st.flash = ""; render(); }, 6000);
+    });
+    const open = on(async () => { await B.call("main", "createTrade", idea.teams); location.assign(`/l/${lidNow()}/trade`); });
+    const im = idea.impact || LG.tradeImpact(L, idea.teams);
+    const needed = F.isNecessary(L, im, settings);
+    return `<div class="card"><div class="hd"><b>${esc(d.team)}</b><span class="chip ${im.score > 0 ? "gem" : "over"}" title="Change in BBGM team rating (predicted margin of victory)">${num(im.now)} now · ${num(im.future)} future</span></div>
+      <div class="why">${esc(F.impactText(L, im))} · long-term value ${num(im.value, 0)}${needed ? " · <b>improves your team</b>" : ""}</div>
+      <div class="sub">You give: ${esc(d.give.join(", ") || "nothing")}</div>
+      <div class="sub">You get: ${esc(d.get.join(", ") || "nothing")}</div>
+      ${propose ? `<div class="actions"><button class="pri sm" data-h="${go}">Propose</button><button class="sm" data-h="${open}">Open in trade screen</button></div>` : ""}</div>`;
+  }
+  function tradesBody() {
+    const wait = needL();
+    if (wait) return wait;
+    const L = st.L;
+    let html = "";
+    if (st.current) {
+      const c = st.current;
+      const im = LG.tradeImpact(L, c.teams);
+      const verdict = F.isNecessary(L, im, settings) ? ["Improves your team", "good"] : im.score < -0.3 ? ["Makes your team worse", "bad"] : ["Marginal", "warn"];
+      html += `<div class="h">Deal on the trade screen</div><div class="card"><div class="hd"><b>${esc(c.desc.team)}</b><span class="chip ${verdict[1] === "good" ? "gem" : verdict[1] === "bad" ? "over" : ""}">${verdict[0]}</span></div>
+        <div class="why">${esc(F.impactText(L, im))}</div>
+        <table>${[...c.get, ...c.give].map((r) => `<tr><td>${r.value >= 0 ? "Get" : "Give"} ${esc(r.label)}</td><td class="${r.value >= 0 ? "good" : "bad"}">${num(r.value)}</td></tr>`).join("")}</table>
+        <div class="why">Per-asset value = forecast on-court value for your ${esc(L.mode)} timeline, minus salary.</div></div>`;
+    }
+    const refresh = on(() => { st.trades.ideas = null; invalidate(); refreshTrades(); });
+    html += `<div class="h">Suggested trades <span class="mut">(${esc(L.mode)} mode)</span></div>`;
+    if (st.trades.busy) html += `<div class="msg">${esc(st.trades.msg || "Searching…")}</div>`;
+    else if (!st.trades.ideas) html += `<div class="msg">Not searched yet.</div>`;
+    else if (!st.trades.ideas.length) html += `<div class="msg">${esc(st.trades.note || "No trade improves your team right now.")}</div>`;
+    else html += st.trades.ideas.map((i) => tradeCard(L, i)).join("");
+    html += `<div class="actions"><button data-h="${refresh}" ${st.trades.busy ? "disabled" : ""}>Search again</button></div>
+      <div class="why">Each offer is one an AI team would actually accept (built by BBGM's trade AI), ranked by how much it improves your team rating (${L.mode === "contend" ? "now" : L.mode === "rebuild" ? "over the next two seasons" : "now and over the next two seasons"}).${settings.tradeOnGameDay ? " Refreshes every game day." : ""}</div>`;
+    return html;
+  }
+
+  // ======================================================================
+  // Targets tab
+  // ======================================================================
+  function targetsBody() {
+    const wait = needL();
+    if (wait) return wait;
+    const L = st.L;
+    let html = "";
+    if (st.offer) {
+      const o = st.offer;
+      html += `<div class="h">Offer</div><div class="banner">${esc((o.message || "").replace(/<[^>]+>/g, ""))}</div>`;
+      if (o.teams && o.desc) html += tradeCard(L, o);
+      const clr = on(() => { st.offer = null; render(); });
+      html += `<div class="actions"><button class="sm" data-h="${clr}">Back to targets</button></div>`;
+      return html;
+    }
+    const list = F.targets(L, 12);
+    html += `<div class="h">Players worth adding <span class="mut">(${esc(L.mode)} mode)</span></div>`;
+    html += list.length ? `<table><tr><th>Player</th><th>Age</th><th>OVR</th><th>Peak</th><th>Value</th><th></th></tr>${list.map((t) => {
+      const b = on(async (el) => {
+        el.disabled = true; el.textContent = "…";
+        try { st.offer = await F.buildOfferFor(L, t.pid); } catch (e) { st.flash = e.message; }
+        render();
+      });
+      return `<tr><td>${plink(t.pid, t.name)}<small>${esc(t.team)} · ${F.fmtMoney(t.contract.amount)} thru ${t.contract.exp}${t.gem >= 7 ? " · gem" : ""}</small></td><td>${t.s.age}</td><td>${t.s.ovr}</td><td>${t.s.peakOvr}</td><td>${t.surplus.toFixed(0)}</td>
+        <td><button class="sm" data-h="${b}" title="Ask the AI team what it wants for this player">Ask</button></td></tr>`;
+    }).join("")}</table>` : `<div class="msg">No standout targets.</div>`;
+    html += `<div class="why">"Ask" puts the player in a trade and uses BBGM's "What would make this work?" to see what the other team wants, then shows whether that's a good deal for you.</div>`;
+    return html;
+  }
+
+  // ======================================================================
+  // Free agents tab
+  // ======================================================================
+  function faBody() {
+    const wait = needL();
+    if (wait) return wait;
+    const L = st.L;
+    const list = F.freeAgents(L);
+    const c = L.capInfo;
+    let html = `<div class="banner">Roster ${c.rosterSize}/${c.maxRoster} · Payroll ${F.fmtMoney(c.payroll)} / cap ${F.fmtMoney(c.cap || 0)} (${esc(c.type)})</div>`;
+    if (!list.length) return html + `<div class="msg">No free agents available.</div>`;
+    html += `<table><tr><th>Player</th><th>Age</th><th>OVR</th><th>Peak</th><th>Ask</th><th>Value</th><th></th></tr>${list.slice(0, 15).map((f) => {
+      const b = on(async (el) => {
+        el.disabled = true;
+        try { await F.sign(L, f); st.flash = `Signed ${f.name}.`; } catch (e) { st.flash = e.message; }
+        invalidate(); render();
+        setTimeout(() => { st.flash = ""; render(); }, 5000);
+      });
+      return `<tr><td>${plink(f.pid, f.name)}<small>${esc(f.s.pos || "")}${f.gem >= 7 ? " · gem" : ""}${f.why ? ` · ${esc(f.why)}` : ""}</small></td><td>${f.s.age}</td><td>${f.s.ovr}</td><td>${f.s.peakOvr}</td>
+        <td>${F.fmtMoney(f.ask)}<small>thru ${f.exp}</small></td><td class="${f.surplus > 0 ? "good" : "bad"}">${f.surplus.toFixed(0)}</td>
+        <td>${f.canSign ? `<button class="sm" data-h="${b}">Sign</button>` : ""}</td></tr>`;
+    }).join("")}</table><div class="why">Value = forecast on-court value minus the asking salary, for your ${esc(L.mode)} timeline. Asking prices come from each player's mood toward your team.</div>`;
+    return html;
+  }
+
+  // ======================================================================
+  // Draft tab
+  // ======================================================================
+  function draftBody() {
+    const wait = needL();
+    if (wait) return wait;
+    const L = st.L;
+    const board = F.draftBoard(L);
+    let html = "";
+    const p = st.poll || {};
+    if (p.phase === 5) {
+      if (p.onClock === p.userTid) {
+        const best = board[0];
+        const b = on(async () => { await F.draftStep(L, settings, { act: true }); invalidate(); render(); });
+        html += `<div class="banner acc"><b>You're on the clock.</b> Best available: ${best ? plink(best.pid, best.name) : "—"}${best ? ` (peak ${best.s.peakOvr}, ceiling ${best.s.ceiling})` : ""}
+          ${settings.draftMode === "auto" ? "<div class='why'>Auto Drafter will pick automatically.</div>" : `<div class="actions"><button class="pri" data-h="${b}">Draft ${esc(best ? best.name : "")}</button></div>`}</div>`;
+      } else html += `<div class="banner">Draft in progress. ${settings.draftMode === "auto" ? "Auto Drafter will pick for you when you're on the clock." : "You'll get a prompt when you're on the clock."}${settings.draftTradeUp ? " Trade-up is on." : ""}</div>`;
+    } else html += `<div class="banner">Draft board for the ${L.draftSeason} class (your scouting view). Auto Drafter acts during the draft phase.</div>`;
+    html += board.length ? `<table><tr><th>#</th><th>Prospect</th><th>Age</th><th>OVR</th><th>Peak</th><th>Ceil</th><th title="BBGM's own ranking">BBGM</th></tr>${board.slice(0, 20).map((b) =>
+      `<tr><td>${b.ourRank}</td><td>${plink(b.pid, b.name)}${b.gem >= 7 ? ` <span class="chip gem">gem</span>` : ""}</td><td>${b.s.age}</td><td>${b.s.ovr}</td><td>${b.s.peakOvr}</td><td>${b.s.ceiling}</td><td class="${b.marketRank - b.ourRank >= 5 ? "good" : ""}">${b.marketRank}</td></tr>`).join("")}</table>` : `<div class="msg">No prospects yet.</div>`;
+    return html;
+  }
+
+  // ======================================================================
+  // Manager tab (suggestions, autopilot, log)
+  // ======================================================================
+  async function refreshPending() {
+    try {
+      const L = await getL();
+      const td = await F.tradeDue(lidNow(), L, settings);
+      st.pending = await F.managerPlan(L, settings, { lid: lidNow(), includeTrades: settings.manage.trades && td.due && td });
+      if (td.due) td.mark();
+    } catch (e) { st.flash = e.message; }
+    render();
+  }
+  function managerBody() {
+    let html = "";
+    if (settings.features.autopilot) {
+      const start = on(() => startAutopilot());
+      const stop = on(() => stopAutopilot());
+      html += `<div class="h">Autopilot</div><div class="card">
+        <div class="sub">Plays ${settings.apStep === "week" ? "a week" : "a day"} at a time for ${settings.apSeasons} season${settings.apSeasons === 1 ? "" : "s"}${settings.apStopAt !== "never" ? `, stopping at ${esc(settings.apStopAt)}` : ""}. Before every step it runs the manager: finances, lineup, minutes, re-signings, cuts, signings, trades and the draft.</div>
+        ${st.ap.running ? `<div class="banner acc">${esc(st.ap.status || "Running…")}</div>` : st.ap.status ? `<div class="why">${esc(st.ap.status)}</div>` : ""}
+        <div class="actions">${st.ap.running ? `<button data-h="${stop}">Stop</button>` : `<button class="pri" data-h="${start}">Start autopilot</button>`}</div></div>`;
+    }
+    if (settings.features.manager) {
+      const refresh = on(() => { st.pending = null; invalidate(); render(); refreshPending(); });
+      html += `<div class="h">${settings.managerMode === "auto" ? "Automatic management is on" : "Suggested moves"}</div>`;
+      if (settings.managerMode === "auto") html += `<div class="why">Runs after every game day and phase change. Everything it does is logged below.</div>`;
+      if (!st.pending) html += needL() || `<div class="msg">Planning…</div>`;
+      else if (!st.pending.length) html += `<div class="msg">Nothing to change right now.</div>`;
+      else {
+        const all = on(async () => { const acts = st.pending; st.pending = null; render(); await F.runActions(acts); invalidate(); st.log = await S.getLog(); refreshPending(); });
+        html += st.pending.map((a, i) => {
+          const one = on(async () => { const [x] = st.pending.splice(i, 1); render(); await F.runActions([x]); invalidate(); st.log = await S.getLog(); refreshPending(); });
+          const skip = on(() => { st.pending.splice(i, 1); render(); });
+          return `<div class="card"><div class="hd"><span><span class="chip">${esc(a.kind)}</span> ${esc(a.text)}</span></div>
+            <div class="actions"><button class="sm pri" data-h="${one}">Do it</button><button class="sm" data-h="${skip}">Skip</button></div></div>`;
+        }).join("") + `<div class="actions"><button class="pri" data-h="${all}">Do all ${st.pending.length}</button></div>`;
+      }
+      html += `<div class="actions"><button class="sm" data-h="${refresh}">Re-plan</button></div>`;
+    }
+    html += `<div class="h">Activity log</div>`;
+    const clear = on(async () => { await S.clearLog(); st.log = []; render(); });
+    html += st.log.length ? `<div class="log">${st.log.slice(0, 30).map((e) => {
+      const u = e.undoKey != null ? on(async (el) => { el.disabled = true; try { await B.call("undoLog", "undo", e.undoKey); st.flash = "Undone."; } catch (err) { st.flash = `Can't undo: ${err.message}`; } invalidate(); render(); }) : null;
+      return `<div><span class="${e.kind === "error" ? "bad" : ""}">${esc(e.text)}</span><span>${u ? `<button class="sm" data-h="${u}">Undo</button> ` : ""}<time>${new Date(e.t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time></span></div>`;
+    }).join("")}</div><div class="actions"><button class="sm" data-h="${clear}">Clear log</button></div>` : `<div class="msg">No actions yet.</div>`;
+    return html;
+  }
+
+  // ======================================================================
+  // Autopilot loop
+  // ======================================================================
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  async function waitIdle(timeoutMs = 20 * 60 * 1000) {
+    const t0 = Date.now();
+    for (;;) {
+      const p = await B.poll();
+      if (!p.gameSim && !p.drafting) return p;
+      if (Date.now() - t0 > timeoutMs) throw new Error("BBGM is taking too long");
+      if (st.ap.stopReq) return p;
+      await sleep(800);
+    }
+  }
+  async function startAutopilot() {
+    if (st.ap.running) return;
+    st.ap = { running: true, status: "Starting…", startSeason: null, stopReq: false };
+    render();
+    // Autopilot must make every decision the game would otherwise stop and ask you about.
+    const apSettings = () => ({ ...settings, manage: { ...settings.manage, resign: true, releases: true, signings: true } });
+    const failed = new Set();
+    let stuck = 0, rounds = 0, roundsKey = "";
+    try {
+      for (;;) {
+        if (st.ap.stopReq) { st.ap.status = "Stopped."; break; }
+        let poll = await waitIdle();
+        if (!poll.inLeague) throw new Error("Not in a league");
+        if (st.ap.startSeason == null) st.ap.startSeason = poll.season;
+        const reason = F.stopHere(poll, settings, st.ap.startSeason);
+        if (reason && stuck === 0 && st.ap.lastKey) { st.ap.status = `Finished: ${reason}.`; break; }
+        st.poll = poll; st.pollKey = keyOf(poll);
+        invalidate();
+        st.ap.status = "Managing the team…"; render();
+        const L = await getL(true);
+        const s2 = apSettings();
+        const td = await F.tradeDue(lidNow(), L, s2);
+        const acts = (await F.managerPlan(L, s2, { lid: lidNow(), includeTrades: s2.manage.trades && td.due && td })).filter((a) => !failed.has(`${keyOf(poll)}|${a.text}`));
+        if (td.due) await td.mark();
+        if (acts.length) {
+          const res = await F.runActions(acts);
+          res.filter((r) => !r.ok).forEach((r) => failed.add(`${keyOf(poll)}|${r.a.text}`));
+          invalidate();
+          const k2 = keyOf(poll);
+          rounds = roundsKey === k2 ? rounds + 1 : 1; roundsKey = k2;
+          if (res.some((r) => r.ok) && rounds < 3) continue; // re-check after changes (e.g. roster size)
+        }
+        if (poll.phase === 5 && poll.onClock === poll.userTid) {
+          st.ap.status = "Drafting…"; render();
+          await F.draftStep(await getL(true), { ...s2, draftTradeUp: s2.draftTradeUp }, { act: true });
+          continue;
+        }
+        const [action, label] = F.nextPlayAction(poll, settings);
+        if (!action) throw new Error("Unknown game phase");
+        st.ap.status = `${label}…`; render();
+        const before = keyOf(poll);
+        st.ap.lastKey = before;
+        await B.call("playMenu", action, undefined, 30 * 60 * 1000).catch((e) => { throw new Error(`${label} failed: ${e.message}`); });
+        await sleep(600);
+        poll = await waitIdle();
+        if (keyOf(poll) === before) {
+          if (++stuck >= 2) throw new Error("The game didn't advance. BBGM may be showing a message that needs you (for example, roster or cap limits).");
+        } else stuck = 0;
+      }
+    } catch (e) {
+      st.ap.status = `Stopped: ${e.message}`;
+      await S.addLog({ kind: "error", text: `Autopilot stopped: ${e.message}` });
+    }
+    st.ap.running = false;
+    st.log = await S.getLog();
+    render();
+  }
+  async function stopAutopilot() {
+    st.ap.stopReq = true;
+    st.ap.status = "Stopping after the current step…";
+    await B.call("playMenu", "stop").catch(() => {});
+    render();
+  }
+
+  // ======================================================================
+  // Background loop: game-day refreshes, drafter, manager
+  // ======================================================================
+  let loopBusy = false;
+  async function tick() {
+    if (loopBusy || !lidNow() || !needsBridge()) return;
+    loopBusy = true;
+    try {
+      const p = await B.poll();
+      st.poll = p;
+      if (!p.inLeague) return;
+      const k = keyOf(p);
+      const changed = k !== st.pollKey;
+      st.pollKey = k;
+      if (changed) { invalidate(); st.current = null; }
+      if (st.ap.running || p.gameSim || p.drafting) { if (changed) render(); return; }
+
+      // Trade screen: evaluate whatever deal is on the table.
+      if (settings.features.trades && settings.tradeOnTradePage && TRADE_RE.test(location.pathname)) {
+        const L = await getL();
+        st.current = await F.evaluateCurrentTrade(L).catch(() => null);
+        if (!st.trades.ideas && !st.trades.busy) refreshTrades();
+      }
+      // Every game day: refresh trade ideas.
+      if (changed && settings.features.trades && settings.tradeOnGameDay && st.trades.forKey !== k && !st.trades.busy) {
+        st.trades.ideas = null;
+        if (st.tab === "trades" || TRADE_RE.test(location.pathname) || p.phase !== 1) refreshTrades();
+        else setTimeout(refreshTrades, 1500);
+      }
+      // Auto Drafter.
+      if (settings.features.drafter && p.phase === 5 && p.onClock === p.userTid && settings.draftMode === "auto") {
+        await F.draftStep(await getL(true), settings, { act: true });
+        invalidate();
+      } else if (settings.features.drafter && p.phase === 5 && settings.draftMode === "auto" && settings.draftTradeUp) {
+        await F.draftStep(await getL(), settings, { act: true });
+      }
+      // Auto Team Management.
+      if (settings.features.manager && changed) {
+        const L = await getL();
+        const td = await F.tradeDue(lidNow(), L, settings);
+        const acts = await F.managerPlan(L, settings, { lid: lidNow(), includeTrades: settings.manage.trades && td.due && td });
+        if (td.due) await td.mark();
+        if (settings.managerMode === "auto" && acts.length) {
+          await F.runActions(acts);
+          invalidate();
+          st.pending = [];
+          st.log = await S.getLog();
+        } else st.pending = acts;
+      }
+      if (changed) render();
+    } catch (e) {
+      // BBGM not ready, or not on a league page.
+    } finally {
+      loopBusy = false;
+    }
   }
 
   // ---------------- Inline badges ----------------
@@ -261,29 +788,41 @@
     }
   }
 
-  // ---------------- Routing ----------------
+
+  // ======================================================================
+  // Routing
+  // ======================================================================
   function onRoute() {
     if (location.href === lastUrl) return;
     lastUrl = location.href;
     const m = location.pathname.match(PLAYER_RE);
     if (m) showPlayer(Number(m[1]), Number(m[2]));
-    else { current = null; removePanel(); }
+    else {
+      st.outlook = null;
+      if (st.tab === "outlook") st.tab = "";
+      render();
+    }
+    if (TRADE_RE.test(location.pathname) && settings.features.trades) { st.tab = "trades"; tick(); }
     scheduleBadges();
   }
 
   async function init() {
     settings = await S.getSettings();
-    S.onChange((changes) => {
+    S.onChange(async (changes) => {
       if (!changes.settings) return;
       const prev = settings;
-      settings = { ...S.DEFAULT_SETTINGS, ...(changes.settings.newValue || {}) };
-      const modelChanged = ["nSims", "respectFog", "bustMode", "bustMargin", "bustOvr"].some((k) => prev[k] !== settings[k]);
-      if (modelChanged) { badgeCache.clear(); clearBadges(); }
-      if (current && (modelChanged || prev.panelSide !== settings.panelSide)) { lastUrl = ""; onRoute(); }
+      settings = await S.getSettings();
+      const modelChanged = ["nSims", "respectFog", "bustMode", "bustMargin", "bustOvr", "teamMode"].some((k) => prev[k] !== settings[k]);
+      if (modelChanged) { badgeCache.clear(); clearBadges(); invalidate(); st.trades.ideas = null; st.pending = null; }
+      if (st.outlook && modelChanged) { lastUrl = ""; onRoute(); }
+      render();
       scheduleBadges();
     });
+    st.log = await S.getLog();
     onRoute();
-    setInterval(onRoute, 500); // BBGM is a single-page app; poll for route changes.
+    setInterval(onRoute, 500); // BBGM is a single-page app; watch for route changes.
+    setInterval(tick, 3000);
+    tick();
     new MutationObserver((muts) => {
       if (settings.badges === "off") return;
       if (muts.some((m) => [...m.addedNodes].some((n) => n.nodeType === 1 && !n.classList?.contains("bbgm-scout-badge") && n.id !== "bbgm-scout-host"))) scheduleBadges();

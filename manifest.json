@@ -1,9 +1,14 @@
 {
   "manifest_version": 3,
   "name": "BBGM Scout",
-  "version": "1.0.0",
-  "description": "Development outlook for Basketball GM players: peak age, peak OVR, ceiling, breakout/decline/bust odds, trend and confidence.",
+  "version": "2.0.0",
+  "description": "Scouting, trade help, free agents, auto draft, team management and autopilot for Basketball GM.",
   "permissions": ["storage"],
+  "host_permissions": ["https://api.anthropic.com/*"],
+  "background": {
+    "service_worker": "src/background.js",
+    "scripts": ["src/background.js"]
+  },
   "action": {
     "default_title": "BBGM Scout",
     "default_popup": "popup/popup.html",
@@ -13,11 +18,17 @@
   "content_scripts": [
     {
       "matches": ["https://play.basketball-gm.com/*", "https://beta.basketball-gm.com/*"],
-      "js": ["src/engine.js", "src/data.js", "src/storage.js", "src/analyze.js", "src/content.js"],
+      "js": ["src/bridge-main.js"],
+      "world": "MAIN",
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://play.basketball-gm.com/*", "https://beta.basketball-gm.com/*"],
+      "js": ["src/engine.js", "src/data.js", "src/storage.js", "src/analyze.js", "src/bridge.js", "src/league.js", "src/features.js", "src/content.js"],
       "run_at": "document_idle"
     }
   ],
   "browser_specific_settings": {
-    "gecko": { "id": "bbgm-scout@local", "strict_min_version": "115.0" }
+    "gecko": { "id": "bbgm-scout@local", "strict_min_version": "128.0" }
   }
 }

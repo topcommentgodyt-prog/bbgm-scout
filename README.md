@@ -1,6 +1,6 @@
 # BBGM Scout
 
-A small browser extension for Basketball GM. It shows a player's development outlook on their page, adds projected-peak badges beside players on draft pages, and syncs your settings, pinned players and saved reports across devices.
+A browser extension for Basketball GM: player development outlooks, a hidden-gem assistant, trade help, free-agent and draft tools, automatic team management, and an Autopilot that sims seasons while managing your team. Settings, pins and reports sync across devices.
 
 ![Panel](docs/panel-dark.png)
 
@@ -16,6 +16,42 @@ A small browser extension for Basketball GM. It shows a player's development out
 | **Bust risk** | P(peak OVR stays below the benchmark). The default benchmark is POT − 5, or you can set a fixed OVR in Settings |
 | **Development trend** | Actual OVR change over the last 3 seasons vs. what BBGM's progression rules expected, given the player's ratings and age at the time |
 | **Confidence** | 0–100. Goes down when the outcome range is wide, scouting fog applies, the player has little history, or real-player determinism is on |
+
+## Tools (each can be turned on or off in the popup's Features tab)
+
+The dock in the bottom corner of every BBGM league page has one tab per tool.
+
+| Tab | What it does | Default |
+|---|---|---|
+| **Outlook** | The development card above, on any player page | On |
+| **AI** | Says whether a player is a **hidden gem**, overvalued or fair, and why. Also lists the best hidden gems around the league. Optional **Ask Claude** box for free-form questions | On (Ask Claude off) |
+| **Trades** | Shops your players and picks to every AI team using BBGM's own trading-block AI, so every offer is one they'd accept. Ranks the offers by how much they raise your **team rating**. Refreshes every game day and grades whatever deal is on the trade screen | On |
+| **Targets** | Players on other teams worth adding. "Ask" runs BBGM's "What would make this work?" and grades the answer | On |
+| **FA** | Free agents ranked by value for the money (forecast value minus asking salary), with Sign buttons and the reason when you can't sign someone | On |
+| **Draft** | Draft board ranked by the Scout model next to BBGM's own ranking. Auto Drafter can suggest or make your pick, and can trade up when your top target won't last | Off |
+| **Manager** | Auto Team Management and Autopilot (below), plus an activity log with Undo | Off |
+
+**Team rating and trades.** Trades are judged with BBGM's own team-rating formula: predicted margin of victory from your top 10 OVRs, where 1 point is about 2.7 wins over 82 games. The manager only makes a trade if it raises that rating:
+- **Contending:** right now.
+- **Rebuilding:** averaged over the next two seasons, using the forecasts.
+- **Balanced:** both.
+
+There's no limit on how many trades it makes. Because each one has to strictly improve the team, it can't churn back and forth.
+
+**Auto Team Management.** Each part has its own switch. Choose "Suggest" (you approve each move) or "Fully automatic".
+- **Finances:** budget style (win now, balanced or profit) and auto ticket price.
+- **Lineup:** keeps the roster auto-sorted.
+- **Playing time:** gives more minutes to your best players when contending, and to young high-upside players when rebuilding. Gives fewer minutes to the end of the bench, and benches injured players and anyone below the rotation. Optional tanking. In BBGM, minutes don't affect progression, but they do affect player mood.
+- **Re-signing:** re-signs players worth their asking price and lets the rest walk.
+- **Roster cuts:** releases the lowest-value players when the roster is over the limit.
+- **Free agents:** signs players to fill the roster, within the cap.
+- **Trades:** as described above.
+
+**Autopilot.** Like BBGM's Auto Play, but your team keeps being managed by the rules above instead of the game's AI. It plays a day (or a week) at a time through the regular season, playoffs, draft, re-signing, free agency and preseason. Before every step it runs the manager and the Auto Drafter. It stops after the number of seasons you choose, at an optional checkpoint, when you press Stop, or if BBGM needs your attention.
+
+**How actions happen.** A small script in the BBGM page calls the same internal functions BBGM's own buttons use (`bbgm.toWorker`). Only an allow-listed set of actions is possible. The game enforces its rules (cap, roster limits, trade deadline, player willingness) and records undo entries. Read-only league snapshots go through BBGM's official worker-console mechanism. Nothing writes to the league database directly.
+
+**Ask Claude.** Off by default. Add your Anthropic API key in Features. The key is stored only on this device and never synced. Pick any current Claude model (Claude Opus 5.5 is the default). Your question and a short summary of the relevant players are sent to the Claude API, billed to your account. Your league file is never sent.
 
 ## How the model works
 
@@ -49,7 +85,10 @@ Settings, pinned players and saved reports are stored in the browser's built-in 
 
 ## Notes and limits
 
-- **Data freshness.** BBGM writes to its database periodically. If a player was just generated (for example, a new draft class), the panel may say they aren't saved yet. Advance a day or phase and try again.
+- **Tested against a mock BBGM engine, not the live site.** The live site couldn't be reached from the build environment, so the automation was tested end to end against a mock of BBGM's engine API, written from BBGM's source code. Try it on a copy of a league first (Tools → Export, or a new league) and start the Manager in Suggest mode.
+- BBGM's internal API isn't a public contract. If a BBGM update renames something, the affected tool shows an error in its tab and the log, and the rest keep working.
+- Trade searches ask every AI team to build an offer, which takes a few seconds per player shopped. If day-by-day sims feel slow, raise "Search for trades every N game days".
+- If BBGM shows a dialog (a roster or cap error, for example), Autopilot stops and says so.
 - Basketball GM only. The other ZenGM sports use different rating systems.
 - Leagues with real-player determinism are flagged as lower confidence, because real career data overrides random progression there.
 - Coaching effect uses the team's current coaching budget level. BBGM uses a 3-season average, so the effect can differ slightly after budget changes.
@@ -60,4 +99,4 @@ Settings, pinned players and saved reports are stored in the browser's built-in 
 node --test tests/engine.test.js
 ```
 
-Files: `src/engine.js` (simulation), `src/data.js` (IndexedDB reader), `src/analyze.js` (player to summary), `src/content.js` (panel and badges), `src/storage.js` (sync), `popup/` (pins, reports, settings).
+Files: `src/engine.js` (simulation), `src/analyze.js` (player to summary), `src/league.js` (league-wide values, pick values, team rating), `src/features.js` (assistant, trades, targets, FA, drafter, manager, autopilot rules), `src/bridge-main.js` + `src/bridge.js` (allow-listed link to BBGM's engine), `src/content.js` (dock, autopilot loop, badges), `src/background.js` (Ask Claude), `src/data.js` (IndexedDB reader), `src/storage.js` (sync and device-only log), `popup/` (pins, reports, features, settings).

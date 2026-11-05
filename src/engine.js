@@ -141,6 +141,9 @@
   }
   const mean = (a) => a.reduce((s, x) => s + x, 0) / (a.length || 1);
 
+  /** On-court value of one season at a given OVR. Convex: one 70 is worth far more than two 55s. 44 ≈ replacement level. */
+  const winValue = (o) => (o > 44 ? Math.pow(o - 44, 1.8) / 10 : 0);
+
   function pickRatings(src) {
     const r = {};
     for (const k of RATING_KEYS) r[k] = Number(src[k]) || 0;
@@ -170,6 +173,7 @@
 
     const peaks = [], peakAges = [], nextDeltas = [], startOvrs = [];
     const pathSum = new Array(years + 1).fill(0);
+    const wSum = new Array(years + 1).fill(0);
 
     for (let s = 0; s < nSims; s++) {
       const r = { ...seen };
@@ -182,10 +186,12 @@
       startOvrs.push(o0);
       let best = o0, bestAge = age0;
       pathSum[0] += o0;
+      wSum[0] += winValue(o0);
       for (let y = 1; y <= years; y++) {
         if (!opts.locked) developSeason(r, age0 + y, coach, rng);
         const o = ovr(r);
         pathSum[y] += o;
+        wSum[y] += winValue(o);
         if (y === 1) nextDeltas.push(o - o0);
         if (o > best) { best = o; bestAge = age0 + y; }
       }
@@ -212,7 +218,7 @@
       expectedNextDelta: mean(nextDeltas),
       bust: Number.isFinite(thr) ? frac(peaks, (p) => p < thr) : null,
       bustThreshold: thr,
-      meanPath: pathSum.map((x, i) => ({ age: age0 + i, ovr: x / nSims })),
+      meanPath: pathSum.map((x, i) => ({ age: age0 + i, ovr: x / nSims, w: wSum[i] / nSims })),
     };
   }
 
@@ -287,7 +293,7 @@
   }
 
   const api = {
-    RATING_KEYS, DEFAULT_LEVEL, ovr, developSeason, forecast, expectedDelta, trend, confidence,
+    RATING_KEYS, DEFAULT_LEVEL, ovr, winValue, developSeason, forecast, expectedDelta, trend, confidence,
     outlookLabel, scoutingFuzz, coachingEffect, levelToEffect, mulberry32, hashSeed, quantile,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;

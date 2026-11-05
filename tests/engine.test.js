@@ -71,3 +71,13 @@ test("performance: 1000 sims of a 19-year-old under 250ms", () => {
   E.forecast({ ratings: flat(45), age: 19, nSims: 1000, seed: 6 });
   assert.ok(Date.now() - t0 < 250, `${Date.now() - t0}ms`);
 });
+
+test("team rating (BBGM MOV formula): better players raise it, 11th man doesn't count", () => {
+  global.BBGMScoutAnalyze = {};
+  const LG = (() => { require("../src/league.js"); return globalThis.BBGMScoutLeague; })();
+  const base = [60, 58, 55, 52, 50, 48, 47, 46, 45, 44];
+  assert.ok(LG.teamMov(base.map((x) => x + 5)) > LG.teamMov(base));
+  assert.strictEqual(LG.teamMov([...base, 40]), LG.teamMov(base));
+  // A league-average team (~top-10 average of 50) should be close to 0 MOV.
+  assert.ok(Math.abs(LG.teamMov([62, 58, 55, 53, 51, 49, 47, 46, 45, 44])) < 8);
+});

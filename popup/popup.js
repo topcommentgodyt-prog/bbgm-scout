@@ -84,6 +84,45 @@
   $("badges").onchange = (e) => save({ badges: e.target.value });
   $("panelSide").onchange = (e) => save({ panelSide: e.target.value });
 
-  S.onChange(() => { renderPins(); renderReports(); renderSync(); });
+  // ---- Features tab: every element with data-k is bound to a (possibly nested) setting ----
+  const ext = globalThis.chrome || globalThis.browser;
+  const getPath = (o, k) => k.split(".").reduce((x, p) => (x == null ? x : x[p]), o);
+  async function renderFeatures() {
+    const s = await S.getSettings();
+    document.querySelectorAll("[data-k]").forEach((el) => {
+      const v = getPath(s, el.dataset.k);
+      if (el.type === "checkbox") el.checked = !!v;
+      else if (document.activeElement !== el) el.value = v ?? "";
+    });
+    document.querySelectorAll("[data-show]").forEach((el) => (el.hidden = !getPath(s, el.dataset.show)));
+  }
+  document.querySelectorAll("[data-k]").forEach((el) => {
+    el.addEventListener("change", async () => {
+      const s = await S.getSettings();
+      const [top, sub] = el.dataset.k.split(".");
+      let v = el.type === "checkbox" ? el.checked : el.type === "number" ? Number(el.value) : el.value;
+      if (el.type === "number") v = Math.max(Number(el.min || -1e9), Math.min(Number(el.max || 1e9), v || 0));
+      await S.saveSettings(sub ? { [top]: { ...s[top], [sub]: v } } : { [top]: v });
+      renderFeatures(); renderSync();
+    });
+  });
+  // Claude models come from the background script, so there's one list to maintain.
+  try {
+    const models = await ext.runtime.sendMessage({ type: "bbgmScout:models" });
+    $("claudeModel").innerHTML = (models || []).map((m) => `<option value="${esc(m.id)}">${esc(m.label)}</option>`).join("");
+  } catch (e) { /* background not ready */ }
+  try {
+    const { claudeKey } = await ext.storage.local.get("claudeKey");
+    if (claudeKey) $("claudeKey").placeholder = "Key saved (enter a new one to replace)";
+  } catch (e) { /* ignore */ }
+  $("claudeKey").addEventListener("change", async (e) => {
+    const k = e.target.value.trim();
+    await ext.storage.local.set({ claudeKey: k });
+    e.target.value = "";
+    e.target.placeholder = k ? "Key saved (enter a new one to replace)" : "sk-ant-…";
+  });
+  renderFeatures();
+
+  S.onChange(() => { renderPins(); renderReports(); renderSync(); renderFeatures(); });
   renderSync(); renderPins(); renderReports(); renderSettings();
 })();

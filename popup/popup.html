@@ -1,0 +1,54 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>BBGM Scout</title>
+<link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <b>BBGM Scout</b>
+    <span id="sync" class="sync"><span class="dot"></span><span id="syncText">…</span></span>
+  </header>
+  <nav>
+    <button data-tab="pins" class="active">Pinned</button>
+    <button data-tab="reports">Reports</button>
+    <button data-tab="settings">Settings</button>
+  </nav>
+
+  <section id="pins">
+    <p class="hint" id="pinsEmpty">Open a player page in BBGM and click <b>☆ Pin</b> to compare players here.</p>
+    <table id="pinTable" hidden>
+      <thead><tr><th>Player</th><th title="Age">Age</th><th title="Current OVR">OVR</th><th title="Projected peak OVR">Peak</th><th title="90th-percentile ceiling">Ceil</th><th title="Peak age">@</th><th title="Breakout chance">Brk</th><th title="Bust risk">Bust</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section id="reports" hidden>
+    <p class="hint" id="reportsEmpty">Saved reports appear here and sync to your other devices.</p>
+    <ul id="reportList"></ul>
+  </section>
+
+  <section id="settings" hidden>
+    <label>Simulations per player
+      <select id="nSims"><option value="500">500 (fast)</option><option value="1000">1,000</option><option value="3000">3,000 (precise)</option></select>
+    </label>
+    <label class="row"><input type="checkbox" id="respectFog"> Respect scouting fog (use the ratings BBGM shows you)</label>
+    <label>Bust benchmark
+      <select id="bustMode"><option value="pot">Peak below POT minus…</option><option value="fixed">Peak below a fixed OVR…</option></select>
+    </label>
+    <label id="marginWrap">Margin <input type="number" id="bustMargin" min="0" max="30"></label>
+    <label id="ovrWrap">OVR <input type="number" id="bustOvr" min="30" max="80"></label>
+    <label>Inline peak badges
+      <select id="badges"><option value="off">Off</option><option value="draft">Draft pages only</option><option value="everywhere">All league pages</option></select>
+    </label>
+    <label>Panel position
+      <select id="panelSide"><option value="right">Bottom right</option><option value="left">Bottom left</option></select>
+    </label>
+    <p class="hint">Settings, pins and reports sync through your browser account. League data stays on this device and is never uploaded.</p>
+    <p class="hint" id="model"></p>
+  </section>
+  <script src="../src/storage.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

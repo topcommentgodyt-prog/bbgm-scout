@@ -56,7 +56,18 @@
       const gp = (t.won || 0) + (t.lost || 0) + (t.tied || 0) + (t.otl || 0);
       let onClock = null, userHasPick = false;
       if (phase === bbgm.PHASE.DRAFT) { const o = await bbgm.draft.getOrder(); onClock = o[0] ? o[0].tid : null; userHasPick = o.some((d) => d.tid === userTid); }
-      out = { inLeague: true, userTid, season, phase, gp, onClock, userHasPick,
+      // Progress signals that also move during the playoffs and free agency (regular-season gp doesn't).
+      let round = null, prog = 0, sched = null;
+      try {
+        const ps = await bbgm.idb.cache.playoffSeries.get(season);
+        if (ps && phase === bbgm.PHASE.PLAYOFFS) {
+          round = ps.currentRound;
+          prog = (ps.currentRound + 1) * 1000 + ps.series.flat().reduce((t, x) => t + ((x.home && x.home.won) || 0) + ((x.away && x.away.won) || 0), 0)
+            + (ps.playIns || []).flat().reduce((t, x) => t + (x && x.pts != null ? 1 : 0), 0);
+        }
+      } catch (e) {}
+      try { sched = (await bbgm.idb.cache.schedule.getAll()).length; } catch (e) {}
+      out = { inLeague: true, userTid, season, phase, gp, onClock, userHasPick, round, prog, sched, daysLeft: opt("daysLeft"),
         gameSim: !!bbgm.lock.get("gameSim"), drafting: !!bbgm.lock.get("drafting"),
         godMode: !!opt("godMode"), multiTeam: (opt("userTids") || [userTid]).length > 1, spectator: !!opt("spectator") };
     } catch (e) { out.error = String(e.message || e); }

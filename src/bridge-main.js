@@ -33,6 +33,7 @@
     "playMenu.untilRegularSeason",
     "playMenu.untilPlayoffs",
     "playMenu.untilEndOfRound",
+    "playMenu.untilEndOfPlayIn",
     "playMenu.throughPlayoffs",
     "playMenu.untilDraft",
     "playMenu.onePick",

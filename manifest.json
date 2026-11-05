@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "BBGM Scout",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "description": "Scouting, trade help, free agents, auto draft, team management and autopilot for Basketball GM.",
   "permissions": [
     "storage"

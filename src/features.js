@@ -397,7 +397,7 @@
       case PH.PRESEASON: return ["untilRegularSeason", "Start the regular season"];
       case PH.REGULAR_SEASON:
       case PH.AFTER_TRADE_DEADLINE: return [settings.apStep === "week" ? "week" : "day", `Play one ${settings.apStep === "week" ? "week" : "day"}`];
-      case PH.PLAYOFFS: return ["untilEndOfRound", "Play until the end of this playoff round"];
+      case PH.PLAYOFFS: return poll.round === -1 ? ["untilEndOfPlayIn", "Play the play-in tournament"] : ["untilEndOfRound", `Play until the end of playoff round ${poll.round != null ? poll.round + 1 : ""}`.trim()];
       case PH.DRAFT_LOTTERY: return ["untilDraft", "Go to the draft"];
       case PH.DRAFT: return [poll.userHasPick ? "untilYourNextPick" : "untilEnd", poll.userHasPick ? "Draft until your next pick" : "Finish the draft"];
       case PH.AFTER_DRAFT: return ["untilResignPlayers", "Go to re-signing"];

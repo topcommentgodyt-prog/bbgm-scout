@@ -105,6 +105,8 @@
   // League model (live snapshot through BBGM's engine)
   // ======================================================================
   const keyOf = (p) => (p ? `${p.season}:${p.phase}:${p.gp}:${p.onClock}` : "");
+  // Finer-grained: also changes as playoff games, scheduled games and free-agency days are played.
+  const progressKey = (p) => (p ? `${keyOf(p)}:${p.prog}:${p.sched}:${p.daysLeft}:${p.round}` : "");
   async function getL(force) {
     const k = st.pollKey;
     if (!force && st.L && st.LKey === k) return st.L;
@@ -842,13 +844,20 @@
         const [action, label] = F.nextPlayAction(poll, settings);
         if (!action) throw new Error("Unknown game phase");
         st.ap.status = `${label}…`; render();
-        const before = keyOf(poll);
+        const before = progressKey(poll);
         st.ap.lastKey = before;
         await B.call("playMenu", action, undefined, 30 * 60 * 1000).catch((e) => { throw new Error(`${label} failed: ${e.message}`); });
         await sleep(600);
         poll = await waitIdle();
-        if (keyOf(poll) === before) {
-          if (++stuck >= 2) throw new Error("The game didn't advance. BBGM may be showing a message that needs you (for example, roster or cap limits).");
+        if (progressKey(poll) === before && poll.phase <= 3) {
+          // Some steps can be no-ops (for example, between playoff rounds). Fall back to playing a single day.
+          st.ap.status = "Playing one day…"; render();
+          await B.call("playMenu", "day", undefined, 30 * 60 * 1000).catch(() => {});
+          await sleep(600);
+          poll = await waitIdle();
+        }
+        if (progressKey(poll) === before) {
+          if (++stuck >= 2) throw new Error(`The game didn't advance after "${label}". BBGM may be showing a message that needs you (for example, roster or cap limits); check the game window, then start Autopilot again.`);
         } else stuck = 0;
       }
     } catch (e) {

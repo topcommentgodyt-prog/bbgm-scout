@@ -31,7 +31,7 @@
     panelSide: "right",
     theme: "auto", // "auto" (follow BBGM / system) | "light" | "dark"
     teamMode: "auto", // "auto" (follow BBGM's team strategy) | "contend" | "balanced" | "rebuild"
-    features: { hover: true, assistant: true, trades: true, targets: true, freeAgents: true, drafter: false, manager: false, autopilot: false, realism: true },
+    features: { hover: true, assistant: true, trades: true, targets: true, freeAgents: true, drafter: false, manager: false, autopilot: false, realism: true, needs: true, plan: true },
     tradeOnGameDay: true,
     tradeOnTradePage: true,
     draftMode: "suggest", // "suggest" | "auto"
@@ -41,6 +41,8 @@
     financeStyle: "balanced", // "win" | "balanced" | "profit"
     tradeMinMov: 0.5, // minimum team-rating (MOV) improvement for an automatic trade
     tradeEveryDays: 1,
+    maxContractYears: 0, // 0 = no limit
+    minCapReserve: 0, // $ millions of cap space to keep free
     rotationSize: 10,
     tank: false,
     apStep: "day", // "day" | "week"

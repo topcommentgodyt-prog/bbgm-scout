@@ -22,7 +22,7 @@ This document describes every feature as it exists today (v2), how each one work
   - Play menu steps: day, week, until regular season, until end of playoff round, until draft, until your next pick, until end of draft, until re-signing, until free agency, until preseason, stop.
 
   Because everything goes through BBGM's own API, the game enforces its rules (salary cap, roster limits, trade deadline, player willingness to sign), and trades and signings get entries in BBGM's undo log.
-- **The dock.** A panel in the bottom-right corner of every BBGM league page (it can move to bottom-left). It has one tab per enabled tool: Outlook, AI, Trades, Targets, FA, Draft, Manager, Realism.
+- **The dock.** A panel in the bottom-right corner of every BBGM league page (it can move to bottom-left). It has one tab per enabled tool: Outlook, AI, Trades, Targets, FA, Draft, Manager, Needs, Plan, Realism.
   - It opens and collapses with a "▼ Close / ▲ Open" button or by clicking the header.
   - A ◐ button cycles Auto, Light and Dark mode. Auto follows BBGM's own theme.
   - Tab labels show badges: number of trade ideas, number of pending manager suggestions, and "!" when you're on the clock in the draft.
@@ -237,8 +237,55 @@ Choose a mode: **Suggest** (a list of proposed moves, each with Do it / Skip, pl
 
 ---
 
+## 12b. Needs tab (team needs scanner)
+
+- Profiles every team's top 10 players, weighted the way BBGM's team rating weights them, in 9 areas. Each area is a weighted average of the relevant BBGM ratings:
+  - Outside shooting (3PT/FG/FT, skill tag "3")
+  - Inside scoring (inside/dunk/height, "Po")
+  - Ball handling & passing (dribbling/passing/OIQ, "B/Ps")
+  - Perimeter defense (DIQ/speed/jumping, "Dp")
+  - Rim protection (height/DIQ/jumping, "Di")
+  - Rebounding (rebounding/height/strength, "R")
+  - Athleticism (speed/jumping/endurance, "A")
+  - Bench depth (OVR of players 6–10)
+  - Star power (best player's OVR)
+- Shows your rank in each area and your **three biggest weaknesses** (below league average by a meaningful margin).
+- For each weakness, the best **trade target** (with an Ask button that runs BBGM's "What would make this work?"), **free agent** (with a Sign button, respecting cap, roster and contract rules) and **draft prospect** (judged on projected OVR in 2 years). Each fix shows "+N" for how much it would raise that area, and a different player is chosen for each weakness.
+- Uses scouted (fuzzed) ratings for other teams' players when scouting fog is on.
+
+## 12c. Plan tab (three-season view and protections)
+
+- A table for this season (or next, in the offseason) plus the two after it: projected **team rating (MOV)** and **league rank** (every team's current roster projected with the forecasts), **committed payroll**, **cap space** (with inflation if set), **contracts expiring** after each season, and **your draft picks**.
+- **Warnings**:
+  - Your top three are projected to lose 3+ OVR by year three, while your best young player won't reach starter level. The window closes before the prospects are ready.
+  - Top-4 now but falling 4+ places.
+  - Rising 4+ places.
+  - Next season's payroll already over the cap.
+  - 3+ rotation players expiring.
+  - No first-round picks in the next two drafts.
+  - Much of next season's strength comes from players without contracts.
+
+  A young player projected to match your current best player is flagged as good news.
+- **Roster outlook:** each player's projected OVR for all three seasons, contract end, and a protection selector.
+- **Picks:** each pick's Scout value and a protection selector.
+
+## 12d. Protected assets and contract rules (respected by every automated feature)
+
+- Per-league, synced protection levels for players and picks: **Never trade**, **Ask first**, Available.
+- **Never trade:**
+  - The Trade Helper never shops the asset, and discards AI offers that include it.
+  - Targets offers that include it can't be proposed.
+  - The Auto Drafter won't trade that pick.
+  - The manager never cuts the player.
+  - In re-signing, a Never-trade player who is willing is re-signed even if they look overpaid. One who refuses is left for you to decide, and nobody is let walk automatically.
+- **Ask first:** any automated move involving the asset is shown as "Needs your OK" and waits, even in fully automatic mode. Autopilot skips those moves, and pauses with an explanation if re-signing can't finish without your decision.
+- **Contract rules** (Features → Auto Team Management):
+  - **Longest contract** (years; 0 = no limit): free agents asking for longer deals are marked "Breaks your rules", and longer re-signings need approval.
+  - **Minimum cap space to keep free** ($ millions): signings and salary-adding trades that would cut into it are skipped or flagged. A minimum contract is still allowed when the roster is below the minimum size.
+
 ## 13. Popup and settings
 
+- **Works with any league:** the extension attaches to whichever BBGM league is open, reads its live state every few seconds, and keeps protections, Realism history and trade timing separate per league.
 - **Pinned:** a comparison table (age, OVR, peak, ceiling, peak age, breakout, bust) with the best value in each column highlighted. Pins refresh when you open that player's page.
 - **Reports:** saved snapshots with notes, synced, deletable.
 - **Features:** an on/off switch and options for every tool:

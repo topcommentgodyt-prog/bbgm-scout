@@ -11,6 +11,7 @@
   const B = root.BBGMScoutBridge;
   const LG = root.BBGMScoutLeague;
   const S = root.BBGMScoutStorage;
+  const PR = () => root.BBGMScoutPlanning; // loaded after this file
   const { PH, PL } = LG;
   const EMPTY_LOOKING_FOR = { positions: {}, skills: {}, assets: { draftPicks: false, prospects: false, bestCurrentPlayers: false } };
   const PT = { 0: "Out of rotation (0)", 0.75: "Fewer minutes (−)", 1: "Normal", 1.25: "More minutes (+)", 1.75: "Much more (++)" };
@@ -77,10 +78,10 @@
       if (L.mode === "contend") edge += (rank(v) >= 8 ? 25 : -30) + (v.summary.age <= 23 ? 10 : 0);
       if (L.mode === "rebuild") edge += (v.summary.age >= 27 ? 25 : 0) - (v.summary.age <= 23 ? 25 : 0);
       return { label: LG.name(L, v.p.pid), pids: [v.p.pid], dpids: [], edge };
-    });
+    }).filter((c) => PR().playerLevel(c.pids[0]) !== "never");
     if (L.mode !== "rebuild") {
       const myPicks = L.snap.draftPicks.filter((d) => d.tid === L.snap.userTid);
-      for (const dp of myPicks) scored.push({ label: LG.pickName(L, dp.dpid), pids: [], dpids: [dp.dpid], edge: L.mode === "contend" ? 40 - dp.round * 10 : 0 });
+      for (const dp of myPicks.filter((d) => PR().pickLevel(d.dpid) !== "never")) scored.push({ label: LG.pickName(L, dp.dpid), pids: [], dpids: [dp.dpid], edge: L.mode === "contend" ? 40 - dp.round * 10 : 0 });
     }
     const candidates = scored.sort((a, b) => b.edge - a.edge).slice(0, shop);
     const ideas = [];
@@ -91,10 +92,13 @@
       try { offers = await B.call("main", "getTradingBlockOffers", { pids: c.pids, dpids: c.dpids, lookingFor: EMPTY_LOOKING_FOR }, 180000); } catch (e) { continue; }
       for (const o of offers || []) {
         if (o.summary && o.summary.warning) continue;
+        if (PR().assetsLevel(o.pidsUser, o.dpidsUser) === "never") continue; // never give up protected assets
         const teams = tradeTeams(L.snap.userTid, o.pidsUser, o.dpidsUser, o.tid, o.pids, o.dpids);
         const rosterAfter = L.capInfo.rosterSize - o.pidsUser.length + o.pids.length;
         const impact = LG.tradeImpact(L, teams);
-        ideas.push({ teams, gain: impact.value, impact, rosterAfter, desc: describeTrade(L, teams) });
+        const protect = PR().assetsLevel(o.pidsUser, o.dpidsUser);
+        const ruleBreak = PR().contractRuleBreak(L, L.settings, { payrollDelta: PR().tradePayrollDelta(L, teams) });
+        ideas.push({ teams, gain: impact.value, impact, rosterAfter, protect, ruleBreak, desc: describeTrade(L, teams) });
       }
     }
     // Rank by improvement on the goal that matters for this team (rating now, future rating, or both).
@@ -168,6 +172,7 @@
         else if (!v.p.mood.willing) why = "Refuses to sign with you";
         else if (L.capInfo.rosterSize >= L.capInfo.maxRoster) why = "Roster full";
         else if (!capFits(L, ask)) why = "Over the cap";
+        else { const rb = PR().contractRuleBreak(L, L.settings, { amount: ask, exp }); if (rb) why = `Breaks your rules: ${rb}`; }
         return { pid: v.p.pid, name: LG.name(L, v.p.pid), s: v.summary, ask, exp, surplus, gem: Math.round(v.gemScore), canSign: !why, why };
       })
       .sort((a, b) => b.surplus - a.surplus)
@@ -204,13 +209,13 @@
       return { state: "picked", best };
     }
     const nextIdx = order.findIndex((dp) => dp.tid === L.snap.userTid);
-    if (act && settings.draftTradeUp && nextIdx > 0 && best.marketRank <= nextIdx && !tradeUpTried.has(order[0].dpid)) {
+    if (act && settings.draftTradeUp && nextIdx > 0 && best.marketRank <= nextIdx && !tradeUpTried.has(order[0].dpid) && PR().pickLevel(order[nextIdx].dpid) === "available") {
       // Our top target will probably be gone before we pick. Ask the team on the clock what it wants for its pick.
       tradeUpTried.add(order[0].dpid);
       await B.call("main", "createTrade", tradeTeams(L.snap.userTid, [], [order[nextIdx].dpid], order[0].tid, [], [order[0].dpid]));
       await B.call("main", "tradeCounterOffer");
       const { teams } = await B.readTrade();
-      if (teams && teams[1].dpids.includes(order[0].dpid)) {
+      if (teams && teams[1].dpids.includes(order[0].dpid) && PR().assetsLevel(teams[0].pids, teams[0].dpids) === "available") {
         const cost = L.assetValue(teams[0].pids, teams[0].dpids);
         const gain = best.value - cost;
         if (gain > 0) {
@@ -264,7 +269,10 @@
     const m = settings.manage;
     const phase = L.snap.phase;
     const u = L.user;
-    const push = (kind, text, run, pids = []) => acts.push({ kind, text, run, pids });
+    // approval: the move involves an "Ask first" asset, so it always waits for the user.
+    const push = (kind, text, run, pids = [], opts = {}) => acts.push({ kind, text, run, pids, approval: !!opts.approval, why: opts.why || "" });
+    const lvl = (pid) => PR().playerLevel(pid);
+    const rules = (o) => PR().contractRuleBreak(L, settings, o);
 
     if (m.finances && L.snap.ga.budget !== false && u && u.budget) {
       const want = FIN[settings.financeStyle] || FIN.balanced;
@@ -289,14 +297,18 @@
         if (!v || !v.p.mood) continue;
         const ask = v.p.mood.contractAmount, exp = v.p.contract.exp;
         const surplus = v.talent - L.costOf(ask, exp);
-        if (v.p.mood.willing && surplus > 0) {
-          push("resign", `Re-sign ${LG.name(L, pid)} at ${fmtMoney(ask)} through ${exp} (value +${surplus.toFixed(1)})`, async () => {
-            const r = await B.call("main", "acceptContractNegotiation", { pid, amount: ask, exp });
-            if (typeof r === "string") throw new Error(r.replace(/<[^>]+>/g, ""));
-            return r;
-          }, [pid]);
-        } else {
-          push("letwalk", `Let ${LG.name(L, pid)} walk (${v.p.mood.willing ? `asking ${fmtMoney(ask)} more than the player is worth to you` : "unwilling to re-sign"})`, () => B.call("main", "cancelContractNegotiation", pid), [pid]);
+        const level = lvl(pid);
+        const broken = rules({ amount: ask, exp, payrollDelta: 0 }) || rules({ exp }); // length limit; re-signing doesn't add new payroll
+        const resign = () => push("resign", `Re-sign ${LG.name(L, pid)} at ${fmtMoney(ask)} through ${exp} (${level === "never" ? "protected player" : `value +${surplus.toFixed(1)}`})`, async () => {
+          const r = await B.call("main", "acceptContractNegotiation", { pid, amount: ask, exp });
+          if (typeof r === "string") throw new Error(r.replace(/<[^>]+>/g, ""));
+          return r;
+        }, [pid], { approval: !!broken || level === "ask", why: broken ? `breaks your rules: ${broken}` : level === "ask" ? "Ask first" : "" });
+        if (v.p.mood.willing && (surplus > 0 || level === "never")) resign();
+        else {
+          const why = v.p.mood.willing ? `asking ${fmtMoney(ask)}, more than the player is worth to you` : "unwilling to re-sign";
+          push("letwalk", `Let ${LG.name(L, pid)} walk (${why})`, () => B.call("main", "cancelContractNegotiation", pid), [pid],
+            { approval: level !== "available", why: level === "never" ? "Never trade: you decide" : level === "ask" ? "Ask first" : "" });
         }
       }
     }
@@ -304,8 +316,9 @@
       const extra = L.capInfo.rosterSize - L.capInfo.maxRoster;
       const mine = L.roster(L.snap.userTid).map((p) => L.byPid.get(p.pid)).filter(Boolean);
       // Cheapest to cut = lowest value, counting the salary you'd still owe.
-      const cut = mine.map((v) => ({ v, score: v.talent - 0.3 * v.cost })).sort((a, b) => a.score - b.score).slice(0, extra);
-      for (const { v } of cut) push("release", `Release ${LG.name(L, v.p.pid)} (lowest value on an over-full roster)`, () => B.call("main", "releasePlayer", { pids: [v.p.pid] }), [v.p.pid]);
+      const cut = mine.filter((v) => lvl(v.p.pid) !== "never").map((v) => ({ v, score: v.talent - 0.3 * v.cost })).sort((a, b) => a.score - b.score).slice(0, extra);
+      for (const { v } of cut) push("release", `Release ${LG.name(L, v.p.pid)} (lowest value on an over-full roster)`, () => B.call("main", "releasePlayer", { pids: [v.p.pid] }), [v.p.pid],
+        { approval: lvl(v.p.pid) === "ask", why: lvl(v.p.pid) === "ask" ? "Ask first" : "" });
     }
     if (m.signings && signingAllowed(phase)) {
       let size = L.capInfo.rosterSize;
@@ -322,14 +335,14 @@
     }
     if (m.trades && includeTrades && tradesAllowed(L)) {
       const { ideas } = await tradeIdeas(L, { shop: 3 });
-      const best = ideas.find((x) => isNecessary(L, x.impact, settings));
+      const best = ideas.find((x) => isNecessary(L, x.impact, settings) && !x.ruleBreak);
       if (best) {
         const why = impactText(L, best.impact);
         push("trade", `Trade ${best.desc.give.join(", ")} to ${best.desc.team} for ${best.desc.get.join(", ")} (${why})`, async () => {
           const r = await proposeTrade(L, best.teams, why);
           if (!r || !r.accepted) throw new Error((r && r.message) || "Trade rejected");
           return r;
-        }, [...best.teams[0].pids, ...best.teams[1].pids]);
+        }, [...best.teams[0].pids, ...best.teams[1].pids], { approval: best.protect === "ask", why: best.protect === "ask" ? `Ask first: ${PR().protectedNames(L, best.teams[0].pids, best.teams[0].dpids, "ask").join(", ")}` : "" });
       }
     }
     return acts;

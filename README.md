@@ -32,6 +32,8 @@ The dock in the bottom corner of every BBGM league page has one tab per tool. Cl
 | **FA** | Free agents ranked by value for the money (forecast value minus asking salary), with Sign buttons and the reason when you can't sign someone | On |
 | **Draft** | Draft board ranked by the Scout model next to BBGM's own ranking. Auto Drafter can suggest or make your pick, and can trade up when your top target won't last | Off |
 | **Manager** | Auto Team Management and Autopilot (below), plus an activity log with Undo | Off |
+| **Needs** | Team needs scanner: your three biggest weaknesses compared with every team (outside shooting, inside scoring, ball handling & passing, perimeter defense, rim protection, rebounding, athleticism, bench depth, star power), each linked to the best trade target, free agent and draft prospect to fix it, with Ask / Sign buttons | On |
+| **Plan** | The next three seasons: projected team rating and league rank, committed payroll, cap space, expiring contracts and your picks, with warnings (stars declining before prospects are ready, a closing window, a cap crunch, no first-rounders). Also where you set **Never trade / Ask first / Available** for every player and pick | On |
 | **Realism** | Records league-wide numbers every season (stars per team, parity, payrolls vs. the cap, max contracts, long injuries, scoring, three-point rate) and suggests God Mode / league setting tweaks as the years go on. For example: a hard cap or higher luxury tax when dynasties form, inflation when the cap never changes, a different Three Point Tendency Factor when the style drifts from the modern NBA. Suggestions only; it never changes settings | On |
 
 **Team rating and trades.** Trades are judged with BBGM's own team-rating formula: predicted margin of victory from your top 10 OVRs, where 1 point is about 2.7 wins over 82 games. The manager only makes a trade if it raises that rating:
@@ -50,6 +52,12 @@ There's no limit on how many trades it makes. Because each one has to strictly i
 - **Free agents:** signs players to fill the roster, within the cap.
 - **Trades:** as described above.
 
+**Protected assets and contract rules.** Mark any player or pick as *Never trade* or *Ask first* (Plan tab, or the Outlook card for your own players). Protections are synced per league.
+- *Never trade:* no automated feature will trade, cut or let that asset walk, and the Trade Helper never shops it or offers it.
+- *Ask first:* automated features may propose a move involving it, but it always waits for your approval, even in fully automatic mode and in Autopilot.
+
+You can also set the longest contract the manager may give and how much cap space to always keep free. Signings, re-signings and trades that break these rules are skipped or flagged.
+
 **Autopilot.** Like BBGM's Auto Play, but your team keeps being managed by the rules above instead of the game's AI. It plays a day (or a week) at a time through the regular season, playoffs, draft, re-signing, free agency and preseason. Before every step it runs the manager and the Auto Drafter. It stops after the number of seasons you choose, at an optional checkpoint, when you press Stop, or if BBGM needs your attention.
 
 **How actions happen.** A small script in the BBGM page calls the same internal functions BBGM's own buttons use (`bbgm.toWorker`). Only an allow-listed set of actions is possible. The game enforces its rules (cap, roster limits, trade deadline, player willingness) and records undo entries. Read-only league snapshots go through BBGM's official worker-console mechanism. Nothing writes to the league database directly.
@@ -65,6 +73,13 @@ BBGM Scout doesn't use a guessed age curve. Each season it applies BBGM's own pr
 **Development trend is descriptive.** In BBGM, each year's progression is independent of past years, so a player who over-developed last year isn't more likely to do it again. The trend row tells you how the player got here; it doesn't shift the forecast.
 
 This is an independent re-implementation of BBGM's published mechanics for personal use. BBGM's source is available to read but is not open source, so don't redistribute this extension as if it were affiliated with BBGM.
+
+## Works with any league
+
+Open any Basketball GM league in the browser and BBGM Scout attaches to it automatically. It reads the league number from the page address and the game's live state every few seconds. That includes random leagues, real-player leagues, custom and uploaded leagues, and leagues mid-season or mid-sim. Settings, pins and reports are shared across leagues; protections, the Realism history and trade timing are kept per league. Things to know:
+- Only leagues on play.basketball-gm.com (or beta.basketball-gm.com) in a browser where the extension is installed. It can't reach leagues on another device or in the mobile app.
+- Multi-team mode and spectator mode: the scouting tools work, but leave the Manager and Autopilot off (they assume you control one team).
+- Real-player leagues with "real player development" on are flagged as lower confidence, because real careers override BBGM's random progression.
 
 ## Install
 
@@ -88,6 +103,7 @@ Settings, pinned players and saved reports are stored in the browser's built-in 
 
 ## Notes and limits
 
+- **Run the live checklist first:** [docs/LIVE_TESTING.md](docs/LIVE_TESTING.md) walks through a copied league step by step.
 - **Tested against a mock BBGM engine, not the live site.** The live site couldn't be reached from the build environment, so the automation was tested end to end against a mock of BBGM's engine API, written from BBGM's source code. Try it on a copy of a league first (Tools → Export, or a new league) and start the Manager in Suggest mode.
 - BBGM's internal API isn't a public contract. If a BBGM update renames something, the affected tool shows an error in its tab and the log, and the rest keep working.
 - Trade searches ask every AI team to build an offer, which takes a few seconds per player shopped. If day-by-day sims feel slow, raise "Search for trades every N game days".

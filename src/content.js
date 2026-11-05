@@ -11,6 +11,7 @@
   const LG = globalThis.BBGMScoutLeague;
   const F = globalThis.BBGMScoutFeatures;
   const R = globalThis.BBGMScoutRealism;
+  const P = globalThis.BBGMScoutPlanning;
   const ext = globalThis.chrome || globalThis.browser;
 
   const PLAYER_RE = /\/l\/(\d+)\/player\/(\d+)/;
@@ -36,6 +37,12 @@
       if (name && !name.startsWith("#")) html = html.replace(esc(name), plink(pid, name));
     }
     return html;
+  }
+  const PROT_ICON = { available: "", ask: "?", never: "🔒" };
+  function protectSelect(kind, id) {
+    const cur = kind === "pick" ? P.pickLevel(id) : P.playerLevel(id);
+    return `<select class="prot ${cur}" data-protect="${kind}:${id}" title="Trade protection: automation never trades, cuts or lets go a Never-trade asset, and always asks before moving an Ask-first one">
+      ${Object.entries(P.LEVELS).map(([k, label]) => `<option value="${k}"${k === cur ? " selected" : ""}>${PROT_ICON[k] ? PROT_ICON[k] + " " : ""}${label}</option>`).join("")}</select>`;
   }
   /** Go to a BBGM page in this tab, letting BBGM's own router handle it (no reload, never a new tab). */
   function goTo(href) {
@@ -88,6 +95,8 @@
     ["fa", "FA", () => settings.features.freeAgents],
     ["draft", "Draft", () => settings.features.drafter],
     ["manager", "Manager", () => settings.features.manager || settings.features.autopilot],
+    ["needs", "Needs", () => settings.features.needs],
+    ["plan", "Plan", () => settings.features.plan],
     ["realism", "Realism", () => settings.features.realism],
   ];
   const needsBridge = () => TABS.slice(1).some(([, , en]) => en());
@@ -138,6 +147,16 @@
       if (fn) { e.preventDefault(); await fn(el); }
     });
     shadow.addEventListener("input", (e) => { if (e.target.id === "askq") st.ask.q = e.target.value; });
+    shadow.addEventListener("change", async (e) => {
+      const sel = e.target.closest("select[data-protect]");
+      if (!sel) return;
+      const [kind, id] = sel.dataset.protect.split(":");
+      await P.setProtection(lidNow(), kind, Number(id), sel.value);
+      st.trades.ideas = null; st.pending = null;
+      st.flash = `${sel.value === "never" ? "Never trade" : sel.value === "ask" ? "Ask first" : "Available"} saved. Every automated feature will follow it.`;
+      render();
+      setTimeout(() => { st.flash = ""; render(); }, 3500);
+    });
     document.body.appendChild(host);
   }
   function removeHost() { if (host) host.remove(); host = shadow = null; }
@@ -213,6 +232,14 @@
   .banner.acc { border-left:3px solid var(--acc); }
   .log div { display:flex; gap:6px; justify-content:space-between; padding:3px 0; border-bottom:1px dashed var(--line); font-size:11.5px; }
   .log time { color:var(--mut); flex:none; }
+  select.prot { font:inherit; font-size:11px; padding:1px 3px; border-radius:6px; border:1px solid var(--line); background:var(--bg); color:var(--fg); max-width:118px; }
+  select.prot.never { border-color:var(--bad); } select.prot.ask { border-color:var(--warn); }
+  .warn-line { color:var(--warn); font-size:11px; margin-top:3px; }
+  .flag { border-left:3px solid var(--line); padding:5px 8px; margin-bottom:6px; background:var(--chip); border-radius:6px; font-size:12px; }
+  .flag.high { border-color:var(--bad); } .flag.medium { border-color:var(--warn); } .flag.good { border-color:var(--good); }
+  .bar { height:6px; border-radius:3px; background:var(--line); position:relative; overflow:hidden; margin-top:3px; }
+  .bar i { position:absolute; left:0; top:0; bottom:0; background:var(--acc); border-radius:3px; }
+  .bar.weak i { background:var(--bad); }
   `;
 
   function tabCount(id) {
@@ -260,6 +287,8 @@
       case "draft": return draftBody();
       case "manager": return managerBody();
       case "realism": return realismBody();
+      case "needs": return needsBody();
+      case "plan": return planBody();
       default: return "";
     }
   }
@@ -339,6 +368,7 @@
       </div>
       ${sparkline(r)}
       <div class="why">${esc(r.confidence.reasons[0])}${r.fog ? " · fog on" : ""} · ${r.fc.nSims.toLocaleString()} sims</div>
+      ${st.L && st.L.byPid.get(o.pid) && st.L.byPid.get(o.pid).p.tid === st.L.snap.userTid ? `<div class="rows" style="margin-top:6px"><div><span>Trade protection</span><span>${protectSelect("player", o.pid)}</span></div></div>` : ""}
       <div class="actions">
         <button data-h="${pin}" class="${o.pinned ? "on" : ""}">${o.pinned ? "★ Pinned" : "☆ Pin"}</button>
         <button data-h="${save}">Save report</button>
@@ -454,7 +484,8 @@
     }
     st.trades.busy = false; st.trades.msg = ""; render();
   }
-  function tradeCard(L, idea, { propose = true } = {}) {
+  function tradeCard(L, idea, { propose: proposeOpt = true } = {}) {
+    let propose = proposeOpt;
     const d = idea.desc;
     const side = (t) => [
       ...t.pids.map((pid) => { const v = L.byPid.get(pid); return `${plink(pid, LG.name(L, pid))}${v ? ` (${v.summary.ovr})` : ""}`; }),
@@ -472,10 +503,20 @@
     const open = on(async () => { await B.call("main", "createTrade", idea.teams); location.assign(`/l/${lidNow()}/trade`); });
     const im = idea.impact || LG.tradeImpact(L, idea.teams);
     const needed = F.isNecessary(L, im, settings);
+    const askNames = P.protectedNames(L, idea.teams[0].pids, idea.teams[0].dpids, "ask");
+    const neverNames = P.protectedNames(L, idea.teams[0].pids, idea.teams[0].dpids, "never");
+    const rb = idea.ruleBreak !== undefined ? idea.ruleBreak : P.contractRuleBreak(L, settings, { payrollDelta: P.tradePayrollDelta(L, idea.teams) });
+    const warns = [
+      neverNames.length ? `Includes Never-trade: ${neverNames.join(", ")}` : "",
+      askNames.length ? `Includes Ask-first: ${askNames.join(", ")}` : "",
+      rb ? `Breaks your rules: ${rb}` : "",
+    ].filter(Boolean);
+    if (neverNames.length) propose = false;
     return `<div class="card"><div class="hd"><b>${esc(d.team)}</b><span class="chip ${im.score > 0 ? "gem" : "over"}" title="Change in BBGM team rating (predicted margin of victory)">${num(im.now)} now · ${num(im.future)} future</span></div>
       <div class="why">${esc(F.impactText(L, im))} · long-term value ${num(im.value, 0)}${needed ? " · <b>improves your team</b>" : ""}</div>
       <div class="sub">You give: ${side(idea.teams[0])}</div>
       <div class="sub">You get: ${side(idea.teams[1])}</div>
+      ${warns.map((w) => `<div class="warn-line">⚠ ${esc(w)}</div>`).join("")}
       ${propose ? `<div class="actions"><button class="pri sm" data-h="${go}">Propose</button><button class="sm" data-h="${open}">Open in trade screen</button></div>` : ""}</div>`;
   }
   function tradesBody() {
@@ -615,7 +656,7 @@
         html += st.pending.map((a, i) => {
           const one = on(async () => { const [x] = st.pending.splice(i, 1); render(); await F.runActions([x]); invalidate(); st.log = await S.getLog(); refreshPending(); });
           const skip = on(() => { st.pending.splice(i, 1); render(); });
-          return `<div class="card"><div class="hd"><span><span class="chip">${esc(a.kind)}</span> ${linkText(a.text, a.pids)}</span></div>
+          return `<div class="card"><div class="hd"><span><span class="chip">${esc(a.kind)}</span> ${linkText(a.text, a.pids)}${a.approval ? `<div class="warn-line">Needs your OK: ${esc(a.why || "protected asset")}</div>` : ""}</span></div>
             <div class="actions"><button class="sm pri" data-h="${one}">Do it</button><button class="sm" data-h="${skip}">Skip</button></div></div>`;
         }).join("") + `<div class="actions"><button class="pri" data-h="${all}">Do all ${st.pending.length}</button></div>`;
       }
@@ -629,6 +670,74 @@
     }).join("")}</div><div class="actions"><button class="sm" data-h="${clear}">Clear log</button></div>` : `<div class="msg">No actions yet.</div>`;
     return html;
   }
+
+  // ======================================================================
+  // Needs tab (team needs scanner)
+  // ======================================================================
+  function needsBody() {
+    const wait = needL();
+    if (wait) return wait;
+    const L = st.L;
+    const N = P.teamNeeds(L, settings, F);
+    let html = `<div class="h">Biggest weaknesses</div>`;
+    if (!N.weaknesses.length) html += `<div class="msg">No clear weaknesses: you're at or above league average everywhere.</div>`;
+    for (const w of N.weaknesses) {
+      html += `<div class="card"><div class="hd"><b>${esc(w.label)}</b><span class="chip over">${ordinal(w.rank)} of ${w.of}</span></div>
+        <div class="why">Your rotation: ${w.value.toFixed(1)} vs league average ${w.mean.toFixed(1)}${w.cat ? ` (BBGM skill tag: ${esc(w.cat.skill)})` : ""}</div>`;
+      if (!w.fixes.length) html += `<div class="msg">No realistic fix found right now.</div>`;
+      for (const f of w.fixes) {
+        const label = f.kind === "trade" ? `Trade target · ${esc(f.team || "")}` : f.kind === "fa" ? `Free agent · asks ${F.fmtMoney(f.ask || 0)}` : "Draft prospect";
+        let btn = "";
+        if (f.kind === "trade") {
+          const h = on(async (el) => { el.disabled = true; el.textContent = "…"; try { st.offer = await F.buildOfferFor(L, f.pid); st.tab = "targets"; } catch (e) { st.flash = e.message; } render(); });
+          btn = `<button class="sm" data-h="${h}" title="Ask the AI team what it wants">Ask</button>`;
+        } else if (f.kind === "fa") {
+          const fa = F.freeAgents(L).find((x) => x.pid === f.pid);
+          if (fa && fa.canSign) {
+            const h = on(async (el) => { el.disabled = true; try { await F.sign(L, fa, `fills ${w.label.toLowerCase()}`); st.flash = `Signed ${fa.name}.`; } catch (e) { st.flash = e.message; } invalidate(); render(); });
+            btn = `<button class="sm" data-h="${h}">Sign</button>`;
+          }
+        }
+        html += `<div class="rows"><div><span>${plink(f.pid, f.name)} <small class="mut">${label}</small></span><span>+${f.gain.toFixed(1)} · OVR ${f.ovr} ${btn}</span></div></div>`;
+      }
+      html += `</div>`;
+    }
+    html += `<div class="h">Full profile vs the league</div><table><tr><th>Area</th><th>Rank</th><th style="width:40%"></th></tr>${N.rows.map((r) => {
+      const pctl = Math.max(4, Math.min(100, 100 * (1 - (r.rank - 1) / Math.max(1, r.of - 1))));
+      return `<tr><td>${esc(r.label)}</td><td>${r.rank}/${r.of}</td><td><div class="bar ${r.z < -0.25 ? "weak" : ""}"><i style="width:${pctl}%"></i></div></td></tr>`;
+    }).join("")}</table>
+    <div class="why">Each area is a weighted average of the relevant BBGM ratings across your top 10 players, weighted like BBGM's team rating (starters count most). "+N" is how much the player would raise that area compared with your current level.${settings.respectFog ? " Other teams' players use the scouted ratings you can see." : ""}</div>`;
+    return html;
+  }
+
+  // ======================================================================
+  // Plan tab (next three seasons + protections)
+  // ======================================================================
+  function planBody() {
+    const wait = needL();
+    if (wait) return wait;
+    const L = st.L;
+    const T = P.threeSeasons(L);
+    const money = (k) => F.fmtMoney(k);
+    let html = T.flags.length ? T.flags.map((f) => `<div class="flag ${f.level}">${linkText(f.text, f.pids)}</div>`).join("") : "";
+    html += `<div class="h">Next three seasons</div><table><tr><th></th>${T.cols.map((c) => `<th>${c.season}</th>`).join("")}</tr>
+      <tr><td>Team rating (MOV)</td>${T.cols.map((c) => `<td class="${c.mov >= 0 ? "good" : "bad"}">${num(c.mov)}</td>`).join("")}</tr>
+      <tr><td>League rank</td>${T.cols.map((c) => `<td>${ordinal(c.rank)}</td>`).join("")}</tr>
+      <tr><td>Payroll committed</td>${T.cols.map((c) => `<td>${money(c.payroll)}</td>`).join("")}</tr>
+      <tr><td>Cap space</td>${T.cols.map((c) => `<td class="${c.space < 0 ? "bad" : ""}">${money(c.space)}</td>`).join("")}</tr>
+      <tr><td>Expiring after season</td>${T.cols.map((c) => `<td>${c.expiring.length}</td>`).join("")}</tr>
+      <tr><td>Your picks</td>${T.cols.map((c) => `<td>${c.picks.map((d) => (d.round === 1 ? "1st" : "2nd")).join(", ") || "–"}</td>`).join("")}</tr></table>
+      <div class="why">Projections keep today's roster and use each player's forecast. Rank compares with every team's current roster projected the same way.</div>`;
+    html += `<div class="h">Roster outlook and protection</div><table><tr><th>Player</th>${T.cols.map((c) => `<th>${String(c.season).slice(2)}</th>`).join("")}<th>Thru</th><th></th></tr>
+      ${T.roster.map((v) => `<tr><td>${plink(v.p.pid, v.summary.name)}<small>${v.summary.age} · ${esc(v.summary.pos || "")}</small></td>
+        ${T.cols.map((c) => `<td>${Math.round(LG.ovrAt(L, v.p.pid, c.season - L.snap.season))}</td>`).join("")}
+        <td>${v.p.contract ? v.p.contract.exp : ""}</td><td>${protectSelect("player", v.p.pid)}</td></tr>`).join("")}</table>`;
+    const picks = L.snap.draftPicks.filter((d) => d.tid === L.snap.userTid).sort((a, b) => a.season - b.season || a.round - b.round);
+    html += `<div class="h">Your draft picks</div>${picks.length ? `<table>${picks.map((d) => `<tr><td>${esc(LG.pickName(L, d.dpid))}</td><td>${num(L.pickValue(d), 0)} value</td><td>${protectSelect("pick", d.dpid)}</td></tr>`).join("")}</table>` : `<div class="msg">No picks.</div>`}
+      <div class="why"><b>Never trade</b>: automation never trades, cuts or lets this asset go. <b>Ask first</b>: automation suggests moves involving it but always waits for your OK, even in automatic mode and Autopilot. Contract-length and cap-reserve limits are in Features → Auto Team Management.</div>`;
+    return html;
+  }
+  const ordinal = (n) => { const t = n % 100; if (t >= 11 && t <= 13) return `${n}th`; return `${n}${{ 1: "st", 2: "nd", 3: "rd" }[n % 10] || "th"}`; };
 
   // ======================================================================
   // Realism tab (God Mode / league setting suggestions over the years)
@@ -699,7 +808,16 @@
         const L = await getL(true);
         const s2 = apSettings();
         const td = await F.tradeDue(lidNow(), L, s2);
-        const acts = (await F.managerPlan(L, s2, { lid: lidNow(), includeTrades: s2.manage.trades && td.due && td })).filter((a) => !failed.has(`${keyOf(poll)}|${a.text}`));
+        const planned = (await F.managerPlan(L, s2, { lid: lidNow(), includeTrades: s2.manage.trades && td.due && td })).filter((a) => !failed.has(`${keyOf(poll)}|${a.text}`));
+        const waiting = planned.filter((a) => a.approval);
+        const acts = planned.filter((a) => !a.approval);
+        if (waiting.length) st.pending = waiting;
+        // Re-signing can't continue past undecided protected players, so hand control back.
+        if (poll.phase === 7 && waiting.some((a) => a.kind === "resign" || a.kind === "letwalk") && !acts.length) {
+          st.ap.status = `Paused: ${waiting.length} move${waiting.length === 1 ? "" : "s"} need your OK (protected players or contract rules). Approve or skip them below, then start Autopilot again.`;
+          await S.addLog({ kind: "error", text: st.ap.status });
+          break;
+        }
         if (td.due) await td.mark();
         if (acts.length) {
           const res = await F.runActions(acts);
@@ -784,9 +902,10 @@
         const acts = await F.managerPlan(L, settings, { lid: lidNow(), includeTrades: settings.manage.trades && td.due && td });
         if (td.due) await td.mark();
         if (settings.managerMode === "auto" && acts.length) {
-          await F.runActions(acts);
+          const ok = acts.filter((a) => !a.approval);
+          if (ok.length) await F.runActions(ok);
           invalidate();
-          st.pending = [];
+          st.pending = acts.filter((a) => a.approval); // "Ask first" moves wait for you even in automatic mode
           st.log = await S.getLog();
         } else st.pending = acts;
       }
@@ -994,9 +1113,11 @@
   // ======================================================================
   // Routing
   // ======================================================================
+  let protLid = null;
   function onRoute() {
     if (location.href === lastUrl) return;
     lastUrl = location.href;
+    if (lidNow() && lidNow() !== protLid) { protLid = lidNow(); P.loadProtections(protLid).then(render); }
     hideTip();
     const m = location.pathname.match(PLAYER_RE);
     if (m) showPlayer(Number(m[1]), Number(m[2]));
@@ -1012,6 +1133,7 @@
   async function init() {
     settings = await S.getSettings();
     S.onChange(async (changes) => {
+      if (protLid && changes[`protect:${protLid}`]) { await P.loadProtections(protLid); st.trades.ideas = null; st.pending = null; render(); }
       if (!changes.settings) return;
       const prev = settings;
       settings = await S.getSettings();

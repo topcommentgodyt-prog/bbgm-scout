@@ -97,6 +97,9 @@
         <label class="row"><input type="checkbox" data-k="manage.resign"> Re-sign players worth their price</label>
         <label class="row"><input type="checkbox" data-k="manage.releases"> Cut players when the roster is over the limit</label>
         <label class="row"><input type="checkbox" data-k="manage.signings"> Sign free agents to fill the roster</label>
+        <label>Longest contract it may give (years, 0 = no limit) <input type="number" data-k="maxContractYears" min="0" max="5"></label>
+        <label>Always keep this much cap space free ($ millions, 0 = off) <input type="number" data-k="minCapReserve" min="0" max="100" step="0.5"></label>
+        <p class="hint">Protect players and picks ("Never trade" / "Ask first") in the dock's Plan tab or on a player's Outlook card. Every automated feature follows them.</p>
         <label class="row"><input type="checkbox" data-k="manage.trades"> Make trades</label>
         <div data-show="manage.trades">
           <p class="hint">No limit on how many. A trade is made only when it raises your team rating (BBGM's predicted margin of victory): now if you're contending, over the next two seasons if you're rebuilding, both if balanced.</p>
@@ -114,6 +117,16 @@
         <label>Seasons to play <input type="number" data-k="apSeasons" min="1" max="50"></label>
         <label>Also stop at <select data-k="apStopAt"><option value="never">Never</option><option value="playoffs">Playoffs</option><option value="draft">Draft</option><option value="freeAgency">Free agency</option></select></label>
       </div>
+    </div>
+
+    <div class="feat">
+      <label class="sw"><input type="checkbox" data-k="features.needs"> <b>Team needs scanner</b></label>
+      <p class="hint">Your three biggest weaknesses compared with the league (shooting, defense, depth and more), each linked to the best trade target, free agent and draft prospect to fix it.</p>
+    </div>
+
+    <div class="feat">
+      <label class="sw"><input type="checkbox" data-k="features.plan"> <b>Three-season plan</b></label>
+      <p class="hint">Projected team strength and rank, committed payroll, expiring contracts and picks for the next three seasons, with warnings (for example, stars declining before prospects are ready). Also where you protect players and picks.</p>
     </div>
 
     <div class="feat">

@@ -24,7 +24,7 @@
     },
     {
       "matches": ["https://play.basketball-gm.com/*", "https://beta.basketball-gm.com/*"],
-      "js": ["src/engine.js", "src/data.js", "src/storage.js", "src/analyze.js", "src/bridge.js", "src/league.js", "src/features.js", "src/realism.js", "src/content.js"],
+      "js": ["src/engine.js", "src/data.js", "src/storage.js", "src/analyze.js", "src/bridge.js", "src/league.js", "src/features.js", "src/realism.js", "src/planning.js", "src/content.js"],
       "run_at": "document_idle"
     }
   ],

@@ -403,7 +403,13 @@ Choose a mode: **Suggest** (a list of proposed moves, each with Do it / Skip, pl
   - hardwood tones in light mode, arena navy in dark mode, with a basketball-orange accent
   - an orange header with a basketball icon
   - scoreboard-style stat tiles and pill buttons
-- Tabs are a single sliding row of icon pills; the active tab is kept in view.
+- Tabs are a single sliding row of icon pills; the active tab is kept in view. Since v2.5.1 there are several ways to scroll the row:
+  - ‹ › arrow buttons at the edges, shown only where more tabs are hidden
+  - the mouse wheel or trackpad, scrolling sideways
+  - click and drag (a drag doesn't open a tab)
+  - ← → keys between tabs
+  - swiping on touch screens
+  Edge fades appear only on sides with hidden tabs.
 - The forecast chart is a fan chart with the 80% range, and the predicted OVR table has range ribbons.
 - Hover cards and the popup use the same palette.
 

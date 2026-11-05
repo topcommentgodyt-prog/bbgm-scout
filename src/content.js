@@ -172,7 +172,50 @@
       return true;
     };
     shadow.addEventListener("auxclick", (e) => { if (e.button === 1) linkClick(e); });
+    // ---- Horizontal tab scrolling: arrows, wheel/trackpad, drag, keyboard ----
+    let drag = null, suppressClick = false;
+    shadow.addEventListener("wheel", (e) => {
+      const nav = e.target.closest && e.target.closest("nav");
+      if (!nav) return;
+      const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY; // a normal mouse wheel scrolls the tabs sideways
+      if (!d) return;
+      const before = nav.scrollLeft;
+      nav.scrollLeft += d * (e.deltaMode === 1 ? 32 : 1);
+      if (nav.scrollLeft !== before) e.preventDefault();
+    }, { passive: false });
+    shadow.addEventListener("pointerdown", (e) => {
+      const nav = e.target.closest && e.target.closest("nav");
+      if (!nav || e.button !== 0 || e.pointerType === "touch") return; // touch already scrolls natively
+      drag = { nav, x: e.clientX, left: nav.scrollLeft, moved: false, id: e.pointerId };
+    });
+    shadow.addEventListener("pointermove", (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      const dx = e.clientX - drag.x;
+      if (!drag.moved && Math.abs(dx) > 5) { drag.moved = true; drag.nav.classList.add("dragging"); try { drag.nav.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ } }
+      if (drag.moved) drag.nav.scrollLeft = drag.left - dx;
+    });
+    const endDrag = () => {
+      if (!drag) return;
+      if (drag.moved) { suppressClick = true; setTimeout(() => { suppressClick = false; }, 0); drag.nav.classList.remove("dragging"); }
+      drag = null;
+    };
+    shadow.addEventListener("pointerup", endDrag);
+    shadow.addEventListener("pointercancel", endDrag);
+    shadow.addEventListener("scroll", (e) => { if (e.target && e.target.tagName === "NAV") updateNavArrows(); }, true);
+    shadow.addEventListener("keydown", (e) => {
+      const tab = e.target.closest && e.target.closest('nav [role="tab"]');
+      if (!tab || (e.key !== "ArrowRight" && e.key !== "ArrowLeft")) return;
+      const next = e.key === "ArrowRight" ? tab.nextElementSibling : tab.previousElementSibling;
+      if (next) { e.preventDefault(); next.focus(); next.scrollIntoView({ block: "nearest", inline: "nearest" }); }
+    });
     shadow.addEventListener("click", async (e) => {
+      if (suppressClick) { e.preventDefault(); e.stopPropagation(); return; } // the end of a drag, not a tab click
+      const arrow = e.target.closest && e.target.closest("[data-navscroll]");
+      if (arrow) {
+        const nav = shadow.querySelector("nav");
+        if (nav) nav.scrollBy({ left: Number(arrow.dataset.navscroll) * Math.max(120, nav.clientWidth * 0.7), behavior: "smooth" });
+        return;
+      }
       if (linkClick(e)) return;
       const el = e.target.closest("[data-h]");
       if (!el) return;
@@ -209,6 +252,14 @@
       setTimeout(() => { st.flash = ""; render(); }, 3500);
     });
     document.body.appendChild(host);
+  }
+  /** Shows the ‹ › arrows (and edge fades) only on the sides where more tabs are hidden. */
+  function updateNavArrows() {
+    const nav = shadow && shadow.querySelector("nav");
+    if (!nav) return;
+    const wrap = nav.parentElement;
+    wrap.classList.toggle("can-left", nav.scrollLeft > 2);
+    wrap.classList.toggle("can-right", nav.scrollLeft + nav.clientWidth < nav.scrollWidth - 2);
   }
   function removeHost() { if (host) host.remove(); host = shadow = null; }
 
@@ -247,9 +298,18 @@
   .caret, header .theme { font-size:11px; padding:1px 7px; }
 
   /* Tabs: one sliding row of icon pills (scroll sideways; the active tab is kept in view), with soft fades at the edges */
-  nav { display:flex; flex-wrap:nowrap; gap:4px; padding:8px 10px; border-bottom:1px solid var(--line); flex:none; overflow-x:auto; overflow-y:hidden;
-    scroll-behavior:smooth; scrollbar-width:none; background:color-mix(in srgb, var(--chip) 55%, var(--bg));
-    -webkit-mask-image:linear-gradient(90deg, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%); mask-image:linear-gradient(90deg, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%); }
+  .navwrap { position:relative; flex:none; border-bottom:1px solid var(--line); background:color-mix(in srgb, var(--chip) 55%, var(--bg)); }
+  nav { display:flex; flex-wrap:nowrap; gap:4px; padding:8px 10px; overflow-x:auto; overflow-y:hidden; scrollbar-width:none; cursor:grab; touch-action:pan-x; }
+  nav.dragging { cursor:grabbing; user-select:none; } nav.dragging button { pointer-events:none; }
+  /* Edge fades only where more tabs are hidden */
+  .can-left nav { -webkit-mask-image:linear-gradient(90deg, transparent 0, #000 34px); mask-image:linear-gradient(90deg, transparent 0, #000 34px); }
+  .can-right nav { -webkit-mask-image:linear-gradient(90deg, #000 calc(100% - 34px), transparent 100%); mask-image:linear-gradient(90deg, #000 calc(100% - 34px), transparent 100%); }
+  .can-left.can-right nav { -webkit-mask-image:linear-gradient(90deg, transparent 0, #000 34px, #000 calc(100% - 34px), transparent 100%); mask-image:linear-gradient(90deg, transparent 0, #000 34px, #000 calc(100% - 34px), transparent 100%); }
+  .navarr { position:absolute; top:50%; transform:translateY(-50%); z-index:2; width:24px; height:24px; padding:0; border-radius:50%; display:none; align-items:center; justify-content:center;
+    font-size:17px; font-weight:800; line-height:1; color:var(--fg); background:var(--card); border:1px solid var(--line); box-shadow:0 2px 8px -2px rgba(0,0,0,.35); }
+  .navarr:hover { color:#fff; background:var(--acc); border-color:var(--acc); }
+  .navarr.prev { left:4px; } .navarr.next { right:4px; }
+  .can-left .navarr.prev, .can-right .navarr.next { display:flex; }
   nav::-webkit-scrollbar { display:none; }
   nav button { display:inline-flex; align-items:center; gap:5px; border:1px solid var(--line); background:var(--card); color:var(--mut); font:inherit; font-size:12px; font-weight:700;
     padding:4px 10px 4px 8px; cursor:pointer; white-space:nowrap; border-radius:999px; flex:none; transition:background .15s, color .15s, border-color .15s, box-shadow .15s; }
@@ -259,6 +319,7 @@
   nav button.active .ti { opacity:1; }
   nav .n { display:inline-block; min-width:14px; padding:0 4px; border-radius:999px; background:var(--acc); color:#fff; font-size:10px; line-height:15px; }
   nav button.active .n { background:rgba(255,255,255,.28); }
+  nav button:focus-visible { outline:2px solid var(--acc); outline-offset:1px; }
 
   .body { padding:12px 8px 14px 12px; overflow-y:scroll; overflow-x:auto; overscroll-behavior:contain; scrollbar-gutter:stable; }
   /* Always-visible scrollbar (macOS otherwise hides it until you scroll) */
@@ -268,7 +329,7 @@
   .body::-webkit-scrollbar-thumb:hover { background:var(--acc); }
   .body::-webkit-scrollbar-corner { background:transparent; }
   @supports not selector(::-webkit-scrollbar) { .body { scrollbar-width:thin; scrollbar-color:var(--acc) transparent; } }
-  .collapsed nav, .collapsed .body { display:none; }
+  .collapsed .navwrap, .collapsed .body { display:none; }
 
   .title { display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
   .name { font-weight:800; font-size:16px; letter-spacing:-.2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -381,10 +442,10 @@
       render();
     });
     const hdr = on(async () => { settings.panelCollapsed = !settings.panelCollapsed; await S.saveSettings({ panelCollapsed: settings.panelCollapsed }); render(); });
-    const nav = tabs.length > 1 ? `<nav role="tablist">${tabs.map(([id, label]) => {
+    const nav = tabs.length > 1 ? `<div class="navwrap"><button class="navarr prev" data-navscroll="-1" tabindex="-1" aria-label="Scroll tabs left">‹</button><nav role="tablist">${tabs.map(([id, label]) => {
       const n = tabCount(id);
       return `<button role="tab" aria-selected="${st.tab === id}" class="${st.tab === id ? "active" : ""}" data-tab="${id}" data-h="${on(() => { st.tab = id; render(); onTabOpen(id); })}"><span class="ti" aria-hidden="true">${TAB_ICON[id] || ""}</span>${label}${n ? `<span class="n">${n}</span>` : ""}</button>`;
-    }).join("")}</nav>` : "";
+    }).join("")}</nav><button class="navarr next" data-navscroll="1" tabindex="-1" aria-label="Scroll tabs right">›</button></div>` : "";
     let body = "";
     try { body = bodyFor(st.tab); } catch (e) { body = `<div class="msg">${esc(e.message)}</div>`; }
     const prevNav = shadow.querySelector("nav");
@@ -406,7 +467,8 @@
     if (navEl) {
       navEl.scrollLeft = navScroll;
       const act = navEl.querySelector("button.active");
-      if (act && (act.offsetLeft < navEl.scrollLeft || act.offsetLeft + act.offsetWidth > navEl.scrollLeft + navEl.clientWidth)) navEl.scrollLeft = act.offsetLeft - 24;
+      if (act && (act.offsetLeft < navEl.scrollLeft || act.offsetLeft + act.offsetWidth > navEl.scrollLeft + navEl.clientWidth)) navEl.scrollLeft = act.offsetLeft - 32;
+      updateNavArrows();
     }
     if (focusKey) { const el = shadow.querySelector(`[data-set="${focusKey}"]`); if (el) el.focus(); }
   }

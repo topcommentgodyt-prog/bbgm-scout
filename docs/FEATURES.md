@@ -89,15 +89,21 @@ The card doesn't capture the mouse (it never blocks clicks), hides on scroll or 
 
 Built from the live snapshot.
 
-- **Team timeline / mode:** Contend, Balanced or Rebuild. "Auto" (default) follows BBGM's own team strategy setting.
+- **Franchise strategy (v2.4):** Rebuild, Develop, Contend or Win Now, chosen by the Strategy Brain in Auto mode (default) or by you. See §10a. Each strategy sets the value discount: Rebuild 0.9, Develop 0.8, Contend 0.65, Win Now 0.5. Rebuild maps to the old "rebuild" timeline, Develop to "balanced", and Contend and Win Now to "contend" for the parts of the tools that use the three-way timeline (minutes, which assets the trade search shops).
 - **Win value per season** for a player is convex in OVR, so one 70-OVR player is worth far more than two 55s, with ~44 OVR treated as replacement level.
-- **Talent** = sum over the next 8 seasons of (expected win value × discount^year). The discount depends on mode: contend 0.55, balanced 0.75, rebuild 0.9. Prospects use at least 0.85.
+- **Talent** = sum over the next 8 seasons of (expected win value × discount^year), with the strategy's discount. Prospects use at least 0.85.
 - **Cost** = discounted salary over the remaining contract, scaled against the max contract.
 - **Surplus / value to you** = talent − cost. This is what signings, re-signings, cuts and per-asset trade values optimize.
 - **Market value** = BBGM's own internal player value (fuzzed when fog applies), which is what the AI teams use.
 - **Percentiles** are computed within comparable pools: all active players, or each draft class.
-- **Draft pick values:** a pick is worth the k-th best prospect, by the Scout model, in the class it will select from. The slot is projected from the original team's record, and future picks are pulled toward the middle and discounted. During a live draft, pick values use the remaining board.
-- **Team rating:** BBGM's own team-rating formula, predicted margin of victory (MOV) from the top 10 OVRs with exponentially decaying weights. 1 point of MOV ≈ 2.7 wins over an 82-game season. Trade impact is measured now (current OVRs, excluding players injured long-term) and as the average over the next two seasons (forecast OVRs).
+- **Draft pick values (v2.4, uncertainty-aware):**
+  - A pick is worth the k-th best prospect, by the Scout model, in the class it will select from. Future classes are blended 50/50 with this year's class as an "average class", because they aren't fully known yet.
+  - When the slot isn't known, the projected slot comes from the original team's strength, blending its record (weighted by how much of the season is played) with its roster's team rating now and in two seasons.
+  - The value is the average over a normal distribution of slots around that projection. Its spread grows with years out and early in a season, and is wider for lottery-range picks, because projected standings don't guarantee a lottery position.
+  - Future picks use the long-horizon draft discount (at least 0.85 per year), not the strategy's player discount, so contenders don't treat future firsts as nearly worthless.
+  - During a live draft, pick values use the remaining board.
+- **Team rating:** BBGM's own team-rating formula, predicted margin of victory (MOV) from the top 10 OVRs with exponentially decaying weights. 1 point of MOV ≈ 2.7 wins over an 82-game season. Trade impact is measured now (current OVRs, excluding players injured long-term) and in each of the next two seasons (forecast OVRs).
+- **Performance on long runs:** forecasts are cached per player and season; entries from past seasons are dropped so 100-season Autopilot runs don't grow memory without limit.
 
 ---
 
@@ -170,6 +176,8 @@ Built from the live snapshot.
 
 ## 10. Manager tab: Auto Team Management
 
+**Dashboard (v2.4).** The tab opens with Strategy (Auto + the four strategies, showing Auto's current pick and its reasons), Seasons (1–100), approvals waiting, and Run/Stop. Advanced settings are collapsed underneath: manager mode, Autopilot step, stop-at checkpoint, minimum trade improvement, trade cooldown, and how often to search for trades.
+
 Choose a mode: **Suggest** (a list of proposed moves, each with Do it / Skip, plus "Do all") or **Fully automatic** (runs after every game day and phase change). Each area has its own switch:
 
 1. **Finances:** budget style:
@@ -187,22 +195,47 @@ Choose a mode: **Suggest** (a list of proposed moves, each with Do it / Skip, pl
    - Rebuilding: + for young (≤ 23), high-ceiling bench players, to keep them happy. Playing time affects player mood, not progression.
    - Optional tanking when rebuilding: − for veterans in the top 3.
    - A player right at a cutoff keeps his current setting while it's what he'd get one spot up or down, so minutes don't flip back and forth from day to day.
-4. **Re-signing** (re-signing phase): re-signs players whose value exceeds their asking price and lets the rest walk. "Unwilling to re-sign" is also handled.
-5. **Roster cuts:** when the roster is over the limit (preseason, regular season or free agency), releases the lowest-value players, counting the salary still owed. It doesn't cut right after the draft, because expiring contracts leave at re-signing time and usually free the spots.
-6. **Free-agent signings:** fills the roster toward the target size (max − 1 in the offseason, the minimum during the season), with positive-value, cap-legal, willing free agents. Below the minimum roster it signs the best available even at break-even. Up to 3 signings per cycle.
-7. **Trades: no fixed cap.** A trade is made only when it is **necessary to improve the team**:
-   - Contend: team rating now improves by at least the minimum (default 0.5 MOV), the future doesn't collapse, and long-term value stays reasonable.
-   - Rebuild: team rating over the next two seasons improves by the minimum, and total value improves.
-   - Balanced: neither now nor future gets worse, and the average improves by the minimum.
+4. **Re-signing** (re-signing phase): re-signs players whose value exceeds their asking price and lets the rest walk. "Unwilling to re-sign" is also handled. Since v2.4 it also keeps players 25 and under who are projected to start within two seasons, unless they're clearly overpriced (value worse than −25% of their talent) or the strategy is Win Now. In hard-cap leagues, players who'll walk are released first (freeing their salary), then re-signings are made best value first while each still fits under the cap, using the same payroll BBGM checks (which still includes unsigned expiring contracts). Before v2.4 the manager could attempt re-signings BBGM would reject over a hard cap.
+5. **Roster cuts:** when the roster is over the limit (preseason, regular season or free agency), releases the players worth least to you. Released salary is still owed in BBGM, so salary doesn't make a player more cuttable. Players 23 and under also count part of their long-run value (half for Rebuild/Develop, a quarter for Contend, none for Win Now). It doesn't cut right after the draft, because expiring contracts leave at re-signing time and usually free the spots.
+6. **Free-agent signings:** fills the roster toward the target size (max − 1 in the offseason, the minimum during the season), with positive-value, cap-legal, willing free agents. Below the minimum roster it signs the best available even at break-even. Up to 3 signings per cycle. Since v2.4 each signing must also fit the **three-season payroll plan**:
+   - committed contracts
+   - reserves to re-sign players 25 and under projected to start when their deals run out (estimated from projected OVR)
+   - rookie deals for your first-round picks (about 2.5% of the cap each)
+
+   The plan is checked against the hard cap, or the luxury-tax line otherwise, taken from your league settings and grown by inflation. Minimum contracts always fit outside hard-cap leagues, and Win Now gets 5% of the cap of extra room.
+7. **Trades: no fixed cap.** A trade is made only when its **strategy score** clears your minimum (default 0.5 MOV), BBGM's trade AI accepts it, and the strategy's own checks pass:
+   - Score = w_now × rating change now + w_future × average change over the next two seasons + 0.004 × long-term value − penalties for young talent given up, draft picks given up, aging (expected OVR decline of players 30+ received), roster overflow and new payroll above the cap/tax line over three seasons.
+   - Weights (now / future / youth / picks / aging): Rebuild 0.1 / 0.9 / 1 / 1 / 0.2, Develop 0.35 / 0.65 / 0.6 / 0.5 / 0.4, Contend 0.65 / 0.35 / 0.25 / 0.25 / 0.6, Win Now 0.9 / 0.1 / 0 / 0 / 1.
+   - Checks: Rebuild needs the future not to get worse and value to improve; Develop allows only small short-term or value losses; Contend needs help now (at least half the minimum) without wrecking the future; Win Now needs at least the minimum now. Never over the roster maximum, and in hard-cap leagues never over the cap (counting signings planned in the same round).
+   - **Move memory** (per league, on this device): no trading a player acquired within the cooldown (default 30 game days) unless the score is at least 3× the minimum, never sending him back to the team he came from during the cooldown, no reacquiring a player you just traded away, and no retrying a rejected deal during the cooldown. Moves that fail three times are paused for about 60 game days. Never trade is never overridden.
 
    Each accepted trade must strictly improve the team, so the manager can't trade back and forth. It skips trades that would push the roster past the maximum (counting signings planned in the same round); the Trades tab warns when a suggested deal would leave you over the limit. The trade search runs every N game days (default 1) and on every phase change, because searching is slow.
 - **Activity log:** the last 200 actions with timestamps, player-name links and **Undo** buttons where BBGM provides an undo entry (trades, signings). An undone entry is marked "(undone)" and loses its button. Stored on the device.
+- **Explanations (v2.4):** every suggestion and log entry from the manager has a "Why" section: the reason, measurable benefits and costs (team rating now and later, value, picks, young talent, aging, payroll, roster size), the strategy it served, and "projected" (numbers are forecasts made at decision time). Strategy changes are logged with the features behind them.
+
+## 10a. Franchise Strategy Brain (v2.4)
+
+- **Strategies:** Rebuild (maximize team rating two or more seasons out; collect young talent and picks), Develop (grow the young core without giving up the future), Contend (this season and next), Win Now (this season's title chances, with aging risk still priced in).
+- **Auto inputs** (all from information the game shows you):
+  - your team rating now and projected in two seasons, as league percentiles
+  - your record, which counts up to 20% once half the season is played
+  - the average age of your top five
+  - your own first-round picks in the next two drafts
+  - young players projected to start
+  - next season's cap room
+- **Choosing:**
+  - Strength = (0.7 − w) × percentile now + 0.3 × percentile in two seasons + w × win %.
+  - Cutoffs: below 0.38 Rebuild, 0.55 Develop, 0.72 Contend; above that, Win Now if the window is closing (projected to get worse, or a core over about 29), otherwise Contend.
+  - A rising young team (projected 25+ percentiles better, with two or more young starters-to-be) develops instead of rebuilding.
+- **Hysteresis:** the current strategy's band is widened by 0.05 on each side, so the team has to clear it clearly before switching.
+- **Checkpoints:** re-evaluated only when the checkpoint changes: start of season (preseason and first half), mid-season (second half through the playoffs, which includes the trade deadline), and offseason (lottery onward).
+- The decision is stored per league in synced storage (a few hundred bytes). Choosing a strategy yourself overrides Auto. The old "Balanced" setting is read as Develop.
 
 ---
 
 ## 11. Manager tab: Autopilot
 
-- **Seasons to play:** a dropdown in the Autopilot section (1–100 seasons; also in the popup).
+- **Seasons to play:** a dropdown in the Manager dashboard (1–100 seasons; also in the popup).
 - While it runs, Autopilot makes every manager move itself; the Manager list only shows moves that need your OK (Ask-first assets or contract-rule breaks).
 - Like BBGM's built-in Auto Play, but your team keeps being run by the manager rules above (with re-signing, cuts and signings forced on so the game never stops to ask you), instead of BBGM's AI.
 - Before every step it re-reads the league, runs the manager (finances, lineup, minutes, re-signings, cuts, signings, trades) and the Auto Drafter, then advances:
@@ -216,10 +249,21 @@ Choose a mode: **Suggest** (a list of proposed moves, each with Do it / Skip, pl
   - Free agency → preseason, where player development happens
 - Stops after the number of seasons you set, at an optional checkpoint (playoffs, draft or free agency), when you press Stop, or when the game doesn't advance two steps in a row (for example, when BBGM is showing a message that needs you).
 - Safety:
-  - Waits while BBGM is simulating or drafting.
-  - Skips actions that already failed on that game day.
-  - Limits repeated manager rounds per game day to 3.
+  - Waits while BBGM is simulating or drafting, and retries briefly if BBGM's worker is busy.
+  - **State validation (v2.4):** before each action it checks that BBGM is idle and still at the game state the plan was made for. If not, the rest of that plan is dropped and re-planned. "Do it" / "Do all" in Suggest mode do the same check.
+  - **Idempotent actions (v2.4):** each action has a signature, and the same action at the same game state is never repeated (re-renders, retries, double clicks).
+  - **Stop** takes effect between actions, never in the middle of one, so no workflow is left half-done.
+  - Limits repeated manager rounds per game day to 3. A loop guard stops Autopilot if the game state doesn't change across 8 manager rounds. It also stops when the game doesn't advance two steps in a row.
+  - Actions that keep failing are paused (see move memory). Multi-team and spectator leagues are refused.
   - Logs why it stopped.
+- **Run summary (v2.4):** when a run ends, the Manager tab shows an expandable summary:
+  - championships, playoff appearances and regular-season win %
+  - salary spent per win, with the league average for context
+  - trades (with their projected impact at the time, summed), signings, re-signings, players let go and released, failed moves
+  - draft picks, strategy changes and roster turnover
+  - a season-by-season table (record, playoff result, strategy)
+
+  Results come from BBGM's own season records. It deliberately makes no claim that Autopilot caused them, because there's no baseline run to compare against. The last summary is kept on this device per league.
 
 ---
 
@@ -328,7 +372,7 @@ Choose a mode: **Suggest** (a list of proposed moves, each with Do it / Skip, pl
   - Auto Team Management (mode, each area, budget style, rotation size, tanking, minimum trade improvement, search frequency)
   - Autopilot (step size, seasons, checkpoint)
   - Realism advisor
-  - Team timeline
+  - Franchise strategy (Auto, Rebuild, Develop, Contend, Win Now) and trade cooldown (also in the Manager dashboard)
 - **Settings:** simulations per player, respect scouting fog, bust benchmark, inline badges, theme, panel position, model version.
 - **Defaults:** scouting tools on; Auto Drafter, Auto Team Management and Autopilot off.
 
@@ -336,8 +380,13 @@ Choose a mode: **Suggest** (a list of proposed moves, each with Do it / Skip, pl
 
 ## 14. Testing and known limits
 
-- Unit tests cover the progression engine, OVR formula, coaching and fog effects, trend, confidence, team rating and performance (1,000 simulations of a 19-year-old in well under 250 ms).
-- End-to-end browser tests ran against a mock of BBGM's engine API, written from BBGM's source code: a full simulated season with trades, signings, draft picks, minutes changes, cuts, re-signings and free agency, plus the popup switches, open/close, theme, hover cards and same-tab links. Version 2.3.0 was also checked on the live BBGM site (play.basketball-gm.com, a new random-players league) by loading the scripts into the page with a stand-in for the extension storage API: every tab loaded, signings, a proposed trade and Undo worked, and Autopilot played a full season (playoffs, draft, re-signing, free agency) to the next preseason. It wasn't installed as a real extension there, and the AI tab's Claude questions weren't tried. Use a copy of a league and Suggest mode first.
+- Unit tests cover the progression engine, OVR formula, coaching and fog effects, trend, confidence, team rating and performance (1,000 simulations of a 19-year-old in well under 250 ms). Since v2.4 they also cover the Strategy Brain (clear cases, rising teams, hysteresis, checkpoints, manual override, legacy setting), trade scoring and checks, pick-value uncertainty, move memory (cooldown, reversals, rejected deals, big-opportunity exception, failure counts, pruning), the game clock and the run summary.
+- **Backtest harness (v2.4):** `node tests/backtest/run.js` runs the Manager/Autopilot loop of v2.3.0 and the working tree side by side on a seeded mock league.
+  - Scenarios: default, rebuilding, contender, expensive aging roster, injury-heavy, and custom rules (hard cap, 13/10 roster limits, 40 games, different contract limits). Both versions start from identical states, over several seeds, plus an optional long run.
+  - It records win %, titles, playoff appearances, roster value, payroll, failed actions, rule violations, stalls, early stops and runtime.
+  - The mock is a simplification: AI teams don't trade with each other, games use the team-rating formula, AI trade logic is approximate. Compare versions with each other only. Results: `tests/backtest/results.md`.
+  - Latest run (3 seeds × 3 seasons per scenario, plus one 15-season run): v2.4.0 had no failed actions; v2.3.0 had re-signings rejected over the hard cap in the custom-rules league. Neither version had rule violations or stalls. Differences in win %, titles and roster value were within seed-to-seed noise in the short runs. The single 15-season run favored v2.4.0, but one seed isn't evidence of an improvement.
+- End-to-end browser tests ran against a mock of BBGM's engine API, written from BBGM's source code: a full simulated season with trades, signings, draft picks, minutes changes, cuts, re-signings and free agency, plus the popup switches, open/close, theme, hover cards and same-tab links. Versions 2.3.0 and 2.4.0 were also checked on the live BBGM site (play.basketball-gm.com, a new random-players league) by loading the scripts into the page with a stand-in for the extension storage API: every tab loaded, signings, a proposed trade and Undo worked, and Autopilot played a full season (playoffs, draft, re-signing, free agency) to the next preseason. For 2.4.0: the new dashboard, Auto strategy, explanations, a rejected-trade memory entry and a one-season Autopilot run with its summary, with no script errors. It wasn't installed as a real extension there, Firefox wasn't tested, and the AI tab's Claude questions weren't tried. Use a copy of a league and Suggest mode first.
 - BBGM's internal API isn't a public contract. A BBGM update could rename something, in which case the affected tool shows an error and the others keep working.
 - Basketball GM only; the other ZenGM sports use different rating systems.
 - The coaching effect uses the current budget level; BBGM uses a 3-season average.

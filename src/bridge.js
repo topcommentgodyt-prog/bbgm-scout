@@ -134,5 +134,17 @@
     poll: () => evalJSON(POLL, 15000),
     snapshot: () => evalJSON(SNAPSHOT, 120000),
     readTrade: () => evalJSON(`const tr = await bbgm.idb.cache.trade.get(0); console.log(JSON.stringify({ teams: tr ? tr.teams : null }));`, 15000),
+    /** Every active team's season records from `from` to `to` (read-only), for the Autopilot summary. */
+    history: (from, to) => evalJSON(`
+      const g = bbgm.g, nr = (g.get("numGamesPlayoffSeries") || []).length;
+      const get = async (tid) => {
+        try { return await bbgm.idb.merged.teamSeasons.getAll({ tid, seasons: [${Number(from)}, ${Number(to)}] }); }
+        catch (e) { return await bbgm.idb.getCopies.teamSeasons({ tid, seasons: [${Number(from)}, ${Number(to)}] }); }
+      };
+      const amt = (x) => (typeof x === "number" ? x : (x && x.amount) || 0);
+      const tids = (await bbgm.idb.cache.teams.getAll()).filter((t) => !t.disabled).map((t) => t.tid);
+      const rows = [];
+      for (const tid of tids) for (const r of await get(tid)) rows.push({ tid, season: r.season, won: r.won || 0, lost: r.lost || 0, tied: r.tied || 0, otl: r.otl || 0, prw: r.playoffRoundsWon ?? -1, salary: amt(r.expenses && r.expenses.salary) });
+      console.log(JSON.stringify({ userTid: g.get("userTid"), nr, rows }));`, 120000),
   };
 })(globalThis);

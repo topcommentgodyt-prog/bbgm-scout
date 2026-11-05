@@ -30,7 +30,7 @@
     panelCollapsed: false,
     panelSide: "right",
     theme: "auto", // "auto" (follow BBGM / system) | "light" | "dark"
-    teamMode: "auto",
+    teamMode: "auto", // "auto" (Strategy Brain) | "rebuild" | "develop" | "contend" | "winnow" (legacy "balanced" = develop)
     riskPref: "auto", // "auto" | "conservative" | "balanced" | "upside" (separate from the timeline)
     draftTradeDown: false, // "auto" (follow BBGM's team strategy) | "contend" | "balanced" | "rebuild"
     features: { hover: true, assistant: true, trades: true, targets: true, freeAgents: true, drafter: false, manager: false, autopilot: false, realism: true, needs: true, plan: true, moneyball: true },
@@ -43,6 +43,7 @@
     financeStyle: "balanced", // "win" | "balanced" | "profit"
     tradeMinMov: 0.5, // minimum team-rating (MOV) improvement for an automatic trade
     tradeEveryDays: 1,
+    tradeCooldownDays: 30, // game days before a newly acquired player can be traded again (big opportunities excepted)
     maxContractYears: 0, // 0 = no limit
     minCapReserve: 0, // $ millions of cap space to keep free
     rotationSize: 10,
@@ -87,6 +88,7 @@
     const s = { ...DEFAULT_SETTINGS, ...(settings || {}) };
     s.features = { ...DEFAULT_SETTINGS.features, ...((settings && settings.features) || {}) };
     s.manage = { ...DEFAULT_SETTINGS.manage, ...((settings && settings.manage) || {}) };
+    if (s.teamMode === "balanced") s.teamMode = "develop"; // v2.4: "Balanced" became the Develop strategy
     return s;
   }
   async function saveSettings(patch) {
@@ -158,7 +160,8 @@
   const localSet = async (k, v) => { try { await local.set({ [k]: v }); } catch (e) { /* ignore */ } };
   async function addLog(entry) {
     const log = (await localGet("actionLog")) || [];
-    log.unshift({ t: Date.now(), ...entry });
+    // Unique, increasing timestamps (they identify entries for Undo).
+    log.unshift({ t: Math.max(Date.now(), ((log[0] && log[0].t) || 0) + 1), ...entry });
     await localSet("actionLog", log.slice(0, 200));
   }
   const getLog = async () => (await localGet("actionLog")) || [];
@@ -168,6 +171,10 @@
     const log = (await localGet("actionLog")) || [];
     await localSet("actionLog", log.map((e) => (e.t === t ? { ...e, undone: true } : e)));
   }
+
+  // ---- Strategy decisions (synced, tiny: one key per league) ----
+  async function getStrategy(league) { return (await get(`strategy:${league}`))[`strategy:${league}`] || null; }
+  async function setStrategy(league, decision) { return set({ [`strategy:${league}`]: decision }); }
 
   // ---- League identity: which local league number each league has on THIS device ----
   async function rememberLeague(league, lid) {
@@ -225,7 +232,7 @@
 
   root.BBGMScoutStorage = {
     MODEL_VERSION, DEFAULT_SETTINGS, getSettings, saveSettings, getPins, isPinned, togglePin, refreshPin,
-    listReports, saveReport, deleteReport, status, onChange, localGet, localSet, addLog, getLog, clearLog, markUndone,
+    listReports, saveReport, deleteReport, status, onChange, localGet, localSet, addLog, getLog, clearLog, markUndone, getStrategy, setStrategy,
     rememberLeague, leagueMap, knownLeague, localUrl, migrateLeague, markSaved,
   };
 })(globalThis);

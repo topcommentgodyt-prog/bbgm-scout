@@ -12,6 +12,7 @@
   const LG = root.BBGMScoutLeague;
   const S = root.BBGMScoutStorage;
   const PR = () => root.BBGMScoutPlanning; // loaded after this file
+  const SG = root.BBGMScoutStrategy;
   const { PH, PL } = LG;
   const EMPTY_LOOKING_FOR = { positions: {}, skills: {}, assets: { draftPicks: false, prospects: false, bestCurrentPlayers: false } };
   const PT = { 0: "Out of rotation (0)", 0.75: "Fewer minutes (−)", 1: "Normal", 1.25: "More minutes (+)", 1.75: "Much more (++)" };
@@ -65,6 +66,26 @@
       .map((v) => gemVerdict(L, v.p.pid));
   }
 
+  // ======================= Move memory (per league, on this device) =======================
+  let activeLid = null;
+  const memCache = new Map();
+  function setLeague(lid) { activeLid = lid || activeLid; }
+  async function loadMem(lid = activeLid) {
+    if (!lid) return SG.emptyMemory();
+    if (!memCache.has(lid)) memCache.set(lid, { ...SG.emptyMemory(), ...((await S.localGet(`mem:${lid}`)) || {}) });
+    return memCache.get(lid);
+  }
+  async function saveMem(lid = activeLid) {
+    if (!lid || !memCache.has(lid)) return;
+    await S.localSet(`mem:${lid}`, memCache.get(lid)).catch(() => {});
+  }
+  const gpOfTeam = (t) => (t ? t.won + t.lost + (t.tied || 0) + (t.otl || 0) : 0);
+  const clockOf = (L) => SG.gameClock(L.snap.season, L.snap.phase, gpOfTeam(L.user));
+  /** Why a trade is blocked by the move memory (cooldowns, reversals, rejected deals), or null. */
+  function memoryBlock(L, mem, teams, score) {
+    return SG.tradeBlocked(mem, teams, clockOf(L), { cooldown: Number(L.settings.tradeCooldownDays) || 30, score, min: L.settings.tradeMinMov ?? 0.5 });
+  }
+
   // ======================= Trade Helper =======================
   const tradesAllowed = (L) => !(L.snap.phase >= PH.AFTER_TRADE_DEADLINE && L.snap.phase <= PH.PLAYOFFS);
 
@@ -88,6 +109,7 @@
       for (const dp of myPicks.filter((d) => PR().pickLevel(d.dpid) !== "never")) scored.push({ label: LG.pickName(L, dp.dpid), pids: [], dpids: [dp.dpid], edge: L.mode === "contend" ? 40 - dp.round * 10 : 0 });
     }
     const candidates = scored.sort((a, b) => b.edge - a.edge).slice(0, shop);
+    const mem = await loadMem();
     const ideas = [];
     let i = 0;
     for (const c of candidates) {
@@ -102,7 +124,7 @@
         const impact = LG.tradeImpact(L, teams);
         const protect = PR().assetsLevel(o.pidsUser, o.dpidsUser);
         const ruleBreak = PR().contractRuleBreak(L, L.settings, { payrollDelta: PR().tradePayrollDelta(L, teams) });
-        ideas.push({ teams, gain: impact.value, impact, rosterAfter, protect, ruleBreak, desc: describeTrade(L, teams) });
+        ideas.push({ teams, gain: impact.value, impact, rosterAfter, protect, ruleBreak, blocked: memoryBlock(L, mem, teams, impact.score), desc: describeTrade(L, teams) });
       }
     }
     // Rank by improvement on the goal that matters for this team (rating now, future rating, or both).
@@ -117,16 +139,43 @@
     return { give: side(teams[0]), get: side(teams[1]), team: other ? `${other.region} ${other.name}` : `Team ${teams[1].tid}`, abbrev: other ? other.abbrev : "" };
   }
 
-  async function proposeTrade(L, teams, why) {
+  async function proposeTrade(L, teams, why, ex) {
     await B.call("main", "createTrade", teams);
     const r = await B.call("main", "proposeTrade", false);
     const d = describeTrade(L, teams);
+    const mem = await loadMem();
     if (r && r.accepted) {
-      await S.addLog({ kind: "trade", text: `Traded ${d.give.join(", ") || "nothing"} to ${d.team} for ${d.get.join(", ") || "nothing"}${why ? ` (${why})` : ""}`, undoKey: r.undoKey, pids: [...teams[0].pids, ...teams[1].pids] });
+      SG.recordTrade(mem, teams, clockOf(L));
+      await S.addLog({ kind: "trade", text: `Traded ${d.give.join(", ") || "nothing"} to ${d.team} for ${d.get.join(", ") || "nothing"}${why ? ` (${why})` : ""}`, undoKey: r.undoKey, pids: [...teams[0].pids, ...teams[1].pids],
+        ex: ex || explainTrade(L, LG.tradeImpact(L, teams)) });
     } else {
+      SG.recordRejected(mem, teams, clockOf(L));
       await B.call("main", "clearTrade", "all").catch(() => {});
     }
+    await saveMem();
     return r;
+  }
+
+  const sgn = (x, n = 1) => `${x >= 0 ? "+" : ""}${x.toFixed(n)}`;
+  /** Concise, measurable reasons for a trade (projected at decision time). */
+  function explainTrade(L, im) {
+    const benefits = [], costs = [];
+    (im.now >= 0 ? benefits : costs).push(`team rating ${sgn(im.now)} now (~${sgn(im.winsNow)} wins)`);
+    (im.future >= 0 ? benefits : costs).push(`team rating ${sgn(im.future)} over the next two seasons`);
+    (im.value >= 0 ? benefits : costs).push(`long-term value ${sgn(im.value, 0)}`);
+    if (im.picksNet > 1) costs.push(`gives up draft picks worth ${im.picksNet.toFixed(0)}`);
+    else if (im.picksNet < -1) benefits.push(`adds draft picks worth ${(-im.picksNet).toFixed(0)}`);
+    if (im.youthNet > 1) costs.push(`gives up young talent worth ${im.youthNet.toFixed(0)}`);
+    else if (im.youthNet < -1) benefits.push(`adds young talent worth ${(-im.youthNet).toFixed(0)}`);
+    if (im.agingNet > 0.5) costs.push(`aging risk: about ${im.agingNet.toFixed(1)} OVR of decline expected from players 30+ over two seasons`);
+    if (im.payroll && im.payroll[0]) {
+      const dp = im.payroll[0].after - im.payroll[0].before;
+      if (Math.abs(dp) >= 100) (dp < 0 ? benefits : costs).push(`${im.payroll[0].season} payroll ${dp < 0 ? "−" : "+"}${fmtMoney(Math.abs(dp))}`);
+    }
+    if (im.payrollOver > 0) costs.push(`$${im.payrollOver.toFixed(1)}M over your payroll limit across three seasons`);
+    const st = L.strategy || { label: L.mode, goal: "" };
+    return { why: `Fits ${st.label}: ${st.goal}. Score ${sgn(im.score, 2)} (threshold ${(L.settings.tradeMinMov ?? 0.5).toFixed(1)}).`, benefits, costs, strategy: st.label, basis: "projected",
+      num: { now: Math.round(im.now * 100) / 100, future: Math.round(im.future * 100) / 100, value: Math.round(im.value), score: Math.round(im.score * 100) / 100 } };
   }
 
   async function evaluateCurrentTrade(L) {
@@ -182,11 +231,55 @@
       .sort((a, b) => b.surplus - a.surplus)
       .slice(0, 25);
   }
-  async function sign(L, fa, why) {
+  async function sign(L, fa, why, ex) {
     const r = await B.call("main", "acceptContractNegotiation", { pid: fa.pid, amount: fa.ask, exp: fa.exp });
     if (typeof r === "string") throw new Error(r.replace(/<[^>]+>/g, ""));
-    await S.addLog({ kind: "sign", text: `Signed ${fa.name} (${fmtMoney(fa.ask)} through ${fa.exp})${why ? ` (${why})` : ""}`, undoKey: typeof r === "number" ? r : undefined, pids: [fa.pid] });
+    const mem = await loadMem();
+    mem.acq[fa.pid] = { t: clockOf(L), from: -1 };
+    await saveMem();
+    await S.addLog({ kind: "sign", text: `Signed ${fa.name} (${fmtMoney(fa.ask)} through ${fa.exp})${why ? ` (${why})` : ""}`, undoKey: typeof r === "number" ? r : undefined, pids: [fa.pid], ex });
     return r;
+  }
+
+  // ======================= Contract planning =======================
+  /**
+   * Payroll for the next three seasons: contracts already signed, plus reserves for (a) re-signing young
+   * players projected to start whose deals run out first and (b) rookie deals for your first-round picks.
+   * The limit is the hard cap, or the luxury-tax line otherwise (from this league's settings).
+   */
+  function payrollPlan(L) {
+    const snap = L.snap, ga = snap.ga || {}, c = L.capInfo;
+    const mine = snap.players.filter((p) => p.tid === snap.userTid).map((p) => L.byPid.get(p.pid)).filter(Boolean);
+    const byOvr = [...mine].sort((a, b) => b.summary.ovr - a.summary.ovr);
+    const starter = byOvr[4] ? byOvr[4].summary.ovr : 50;
+    const est = (ovr) => Math.round(c.minContract + (c.maxContract - c.minContract) * Math.pow(Math.max(0, Math.min(1, (ovr - 47) / 28)), 1.5));
+    const growth = 1 + (Number(ga.inflationAvg) || 0) / 100;
+    const baseLimit = c.type === "hard" ? c.cap : ga.luxuryPayroll || (c.type === "none" ? Infinity : c.cap * 1.25);
+    const out = [];
+    for (let k = 0; k < 3; k++) {
+      const s = L.nextSeason + k;
+      const y = s - snap.season;
+      let committed = 0, reserve = 0;
+      const keep = [];
+      for (const v of mine) {
+        const ct = v.p.contract;
+        if (ct && ct.exp >= s) committed += ct.amount;
+        else if (v.summary.age <= 25 && LG.ovrAt(L, v.p.pid, Math.max(0, y)) >= starter) { reserve += est(LG.ovrAt(L, v.p.pid, Math.max(0, y))); keep.push(v.p.pid); }
+      }
+      const rookies = snap.draftPicks.filter((d) => d.tid === snap.userTid && d.round === 1 && d.season === s - 1).length;
+      reserve += rookies * (c.cap || 90000) * 0.025;
+      out.push({ season: s, committed, reserve, total: committed + reserve, limit: baseLimit * Math.pow(growth, k), keep, rookies });
+    }
+    return out;
+  }
+  /** Whether adding `amount` through `exp` fits the plan. Minimum contracts always fit outside hard-cap leagues. */
+  function fitsPlan(L, plan, amount, exp, extraRoom = 0) {
+    if (L.capInfo.type !== "hard" && amount <= L.capInfo.minContract + 1) return { ok: true };
+    for (const row of plan) {
+      if (exp < row.season) continue;
+      if (row.total + amount > row.limit + extraRoom) return { ok: false, season: row.season, over: row.total + amount - row.limit, row };
+    }
+    return { ok: true };
   }
 
   // ======================= Auto Drafter =======================
@@ -345,126 +438,203 @@
       .filter((x) => x.pt !== (x.v.p.ptModifier ?? 1));
   }
 
-  /** Builds the list of actions the manager wants to take right now. Each has run(). */
+  /** Builds the list of actions the manager wants to take right now. Each has run() and an explanation. */
   async function managerPlan(L, settings, { lid, includeTrades }) {
+    setLeague(lid);
     const acts = [];
     const m = settings.manage;
     const phase = L.snap.phase;
     const u = L.user;
+    const mem = await loadMem();
+    const clock = clockOf(L);
+    lastClock = clock;
+    const st = L.strategy || { label: L.mode, goal: "" };
     // approval: the move involves an "Ask first" asset, so it always waits for the user.
-    const push = (kind, text, run, pids = [], opts = {}) => acts.push({ kind, text, run, pids, approval: !!opts.approval, why: opts.why || "" });
+    const push = (kind, text, run, pids = [], opts = {}) => {
+      const sig = opts.sig || `${kind}:${pids.join(",")}:${text.slice(0, 40)}`;
+      if (mem.fails[sig] && mem.fails[sig].n >= 3 && clock - mem.fails[sig].t < 60) return; // failed repeatedly: stop retrying for a while
+      acts.push({ kind, text, run, pids, sig, approval: !!opts.approval, why: opts.why || "", ex: opts.ex || null });
+    };
+    const ex = (why, benefits = [], costs = []) => ({ why, benefits, costs, strategy: st.label, basis: "projected" });
     const lvl = (pid) => PR().playerLevel(pid);
     const rules = (o) => PR().contractRuleBreak(L, settings, o);
+    const plan = payrollPlan(L);
 
     if (m.finances && L.snap.ga.budget !== false && u && u.budget) {
       const want = FIN[settings.financeStyle] || FIN.balanced;
       const lvl = (k) => (typeof u.budget[k] === "number" ? u.budget[k] : u.budget[k] && u.budget[k].level);
       const differs = Object.keys(want).some((k) => Math.abs((lvl(k) || 0) - want[k]) > 1) || !u.autoTicketPrice;
       if (differs) {
+        const changes = Object.keys(want).filter((k) => Math.abs((lvl(k) || 0) - want[k]) > 1).map((k) => `${k} ${lvl(k) || 0} → ${want[k]}`);
         push("finances", `Set budget: coaching ${want.coaching}, health ${want.health}, facilities ${want.facilities}, scouting ${want.scouting}; auto ticket price (${settings.financeStyle})`, () =>
-          B.call("main", "updateBudget", { budgetLevels: { ...want, ticketPrice: typeof u.budget.ticketPrice === "number" ? u.budget.ticketPrice : (u.budget.ticketPrice || {}).amount }, adjustForInflation: u.adjustForInflation !== false, autoTicketPrice: true }));
+          B.call("main", "updateBudget", { budgetLevels: { ...want, ticketPrice: typeof u.budget.ticketPrice === "number" ? u.budget.ticketPrice : (u.budget.ticketPrice || {}).amount }, adjustForInflation: u.adjustForInflation !== false, autoTicketPrice: true }),
+          [], { sig: "finances", ex: ex(`Your finance style is "${settings.financeStyle}".`, changes.length ? [`budget ${changes.join(", ")}`] : ["turns on auto ticket price"]) });
       }
     }
     if (m.roster && u && !u.keepRosterSorted) {
-      push("roster", "Turn on 'Keep auto sorted' so the lineup always follows the best available players", () => B.call("main", "updateKeepRosterSorted", { tid: L.snap.userTid, keepRosterSorted: true }));
+      push("roster", "Turn on 'Keep auto sorted' so the lineup always follows the best available players", () => B.call("main", "updateKeepRosterSorted", { tid: L.snap.userTid, keepRosterSorted: true }), [], { sig: "roster" });
     }
     if (m.minutes && (phase === PH.REGULAR_SEASON || phase === PH.AFTER_TRADE_DEADLINE || phase === PH.PLAYOFFS || phase === PH.PRESEASON)) {
       for (const x of minutesPlan(L, settings)) {
-        push("minutes", `${LG.name(L, x.v.p.pid)}: ${PT[x.pt]} (${x.why})`, () => B.call("main", "updatePlayingTime", { pid: x.v.p.pid, ptModifier: x.pt }), [x.v.p.pid]);
+        push("minutes", `${LG.name(L, x.v.p.pid)}: ${PT[x.pt]} (${x.why})`, () => B.call("main", "updatePlayingTime", { pid: x.v.p.pid, ptModifier: x.pt }), [x.v.p.pid], { sig: `minutes:${x.v.p.pid}:${x.pt}` });
       }
     }
     if (m.resign && phase === PH.RESIGN_PLAYERS) {
-      for (const pid of L.snap.negotiations) {
-        const v = L.byPid.get(pid);
-        if (!v || !v.p.mood) continue;
-        const ask = v.p.mood.contractAmount, exp = v.p.contract.exp;
-        const surplus = v.talent - L.costOf(ask, exp);
+      const byOvr = L.roster(L.snap.userTid).map((p) => L.byPid.get(p.pid)).filter(Boolean).sort((a, b) => b.summary.ovr - a.summary.ovr);
+      const starter = byOvr[4] ? byOvr[4].summary.ovr : 50;
+      // Hard cap: re-signings must fit too. BBGM checks the current payroll (which still includes every
+      // unsigned expiring contract) minus the player's old salary plus the new one. So: let players walk
+      // first (that frees their salary), then re-sign best value first while each one still fits.
+      const hard = L.capInfo.type === "hard" && L.capInfo.cap;
+      const valueOf = (v) => v.talent - L.costOf(v.p.mood.contractAmount, v.p.contract.exp);
+      const order = [...L.snap.negotiations].map((pid) => L.byPid.get(pid)).filter((v) => v && v.p.mood).sort((a, b) => valueOf(b) - valueOf(a));
+      let hardPay = L.capInfo.payroll;
+      const walk = (v, why) => {
+        const pid = v.p.pid, level = lvl(pid), ask = v.p.mood.contractAmount;
+        if (level === "available") hardPay -= v.p.contract.amount; // only moves that run without approval free room for sure
+        push("letwalk", `Let ${LG.name(L, pid)} walk (${why})`, () => B.call("main", "cancelContractNegotiation", pid), [pid],
+          { approval: level !== "available", why: level === "never" ? "Never trade: you decide" : level === "ask" ? "Ask first" : "", sig: `letwalk:${pid}`,
+            ex: ex(!v.p.mood.willing ? "He won't re-sign." : why.includes("hard cap") ? "No room under the hard cap after higher-value re-signings." : "Asking price is above his value to you.",
+              [], v.p.mood.willing ? [`value ${sgn(valueOf(v), 0)} at ${fmtMoney(ask)}`] : []) });
+      };
+      const keep = [];
+      for (const v of order) {
+        const pid = v.p.pid;
+        const ask = v.p.mood.contractAmount;
+        const surplus = valueOf(v);
         const level = lvl(pid);
+        // Young players projected to start are kept unless clearly overpriced: losing them is hard to undo.
+        const young = v.summary.age <= 25 && Math.max(LG.ovrAt(L, pid, 1), LG.ovrAt(L, pid, 2)) >= starter && surplus > -0.25 * Math.abs(v.talent) && st.key !== "winnow";
+        if (v.p.mood.willing && (surplus > 0 || level === "never" || young)) keep.push({ v, young, surplus });
+        else walk(v, v.p.mood.willing ? `asking ${fmtMoney(ask)}, more than the player is worth to you` : "unwilling to re-sign");
+      }
+      for (const { v, young, surplus } of keep) {
+        const pid = v.p.pid, ask = v.p.mood.contractAmount, exp = v.p.contract.exp, level = lvl(pid);
+        if (hard && hardPay - v.p.contract.amount + ask > L.capInfo.cap) { walk(v, `re-signing at ${fmtMoney(ask)} would put you over the hard cap`); continue; }
+        hardPay += ask - v.p.contract.amount;
         const broken = rules({ amount: ask, exp, payrollDelta: 0 }) || rules({ exp }); // length limit; re-signing doesn't add new payroll
-        const resign = () => push("resign", `Re-sign ${LG.name(L, pid)} at ${fmtMoney(ask)} through ${exp} (${level === "never" ? "protected player" : `value +${surplus.toFixed(1)}`})`, async () => {
+        const why = level === "never" ? "protected player" : surplus > 0 ? `value +${surplus.toFixed(1)}` : `young core: projected ${Math.round(LG.ovrAt(L, pid, 2))} OVR in two seasons`;
+        push("resign", `Re-sign ${LG.name(L, pid)} at ${fmtMoney(ask)} through ${exp} (${why})`, async () => {
           const r = await B.call("main", "acceptContractNegotiation", { pid, amount: ask, exp });
           if (typeof r === "string") throw new Error(r.replace(/<[^>]+>/g, ""));
           return r;
-        }, [pid], { approval: !!broken || level === "ask", why: broken ? `breaks your rules: ${broken}` : level === "ask" ? "Ask first" : "" });
-        if (v.p.mood.willing && (surplus > 0 || level === "never")) resign();
-        else {
-          const why = v.p.mood.willing ? `asking ${fmtMoney(ask)}, more than the player is worth to you` : "unwilling to re-sign";
-          push("letwalk", `Let ${LG.name(L, pid)} walk (${why})`, () => B.call("main", "cancelContractNegotiation", pid), [pid],
-            { approval: level !== "available", why: level === "never" ? "Never trade: you decide" : level === "ask" ? "Ask first" : "" });
-        }
+        }, [pid], { approval: !!broken || level === "ask", why: broken ? `breaks your rules: ${broken}` : level === "ask" ? "Ask first" : "", sig: `resign:${pid}`,
+          ex: ex(young && surplus <= 0 ? "Young player projected to start; letting him walk would lose him for nothing." : "Worth more to you than the asking price.",
+            [`value to you ${sgn(v.talent, 0)} over the contract`, `projected OVR ${Math.round(LG.ovrAt(L, pid, 1))} next season`], [`${fmtMoney(ask)} a year through ${exp}`]) });
       }
     }
     if (m.releases && L.capInfo.rosterSize > L.capInfo.maxRoster && (phase === PH.PRESEASON || phase === PH.REGULAR_SEASON || phase === PH.FREE_AGENCY)) {
       // Not right after the draft: expiring contracts leave at re-signing time, which usually frees the spots.
       const extra = L.capInfo.rosterSize - L.capInfo.maxRoster;
       const mine = L.roster(L.snap.userTid).map((p) => L.byPid.get(p.pid)).filter(Boolean);
-      // Cheapest to cut = lowest value, counting the salary you'd still owe.
-      const cut = mine.filter((v) => lvl(v.p.pid) !== "never").map((v) => ({ v, score: v.talent - 0.3 * v.cost })).sort((a, b) => a.score - b.score).slice(0, extra);
+      // Cut the players worth least to you. A released player's salary is still owed in BBGM, so salary
+      // doesn't make a player more "cuttable"; young players also count their long-run value unless winning now.
+      const youthW = st.key === "winnow" ? 0 : st.key === "contend" ? 0.25 : 0.5;
+      const keepScore = (v) => v.talent + (v.summary.age <= 23 ? youthW * v.draftTalentNeutral : 0);
+      const cut = mine.filter((v) => lvl(v.p.pid) !== "never").map((v) => ({ v, score: keepScore(v) })).sort((a, b) => a.score - b.score).slice(0, extra);
       for (const { v } of cut) push("release", `Release ${LG.name(L, v.p.pid)} (lowest value on an over-full roster)`, () => B.call("main", "releasePlayer", { pids: [v.p.pid] }), [v.p.pid],
-        { approval: lvl(v.p.pid) === "ask", why: lvl(v.p.pid) === "ask" ? "Ask first" : "" });
+        { approval: lvl(v.p.pid) === "ask", why: lvl(v.p.pid) === "ask" ? "Ask first" : "", sig: `release:${v.p.pid}`,
+          ex: ex(`Roster is ${L.capInfo.rosterSize}/${L.capInfo.maxRoster}; he's worth the least to you for ${st.label} (released salary is still owed, so it isn't a reason to cut).`, [], v.p.contract ? [`still owed ${fmtMoney(v.p.contract.amount)} a year through ${v.p.contract.exp}`] : []) });
     }
-    let signed = 0; // signings planned this round, so a trade below can't push the roster past the maximum
+    let signed = 0, signedPay = 0; // signings planned this round, so a trade below can't break roster or hard-cap limits
     if (m.signings && signingAllowed(phase)) {
       let size = L.capInfo.rosterSize;
       const target = phase === PH.FREE_AGENCY || phase === PH.PRESEASON ? L.capInfo.maxRoster - 1 : L.capInfo.minRoster;
       let payroll = L.capInfo.payroll;
+      const extraRoom = st.key === "winnow" ? 0.05 * (L.capInfo.cap || 0) : 0;
       for (const fa of freeAgents(L)) {
         if (size >= target && !(fa.surplus > 8 && size < L.capInfo.maxRoster)) continue;
         if (!fa.canSign || (fa.surplus <= 0 && size >= L.capInfo.minRoster)) continue;
         if (L.capInfo.type !== "none" && payroll + fa.ask > L.capInfo.cap && fa.ask > L.capInfo.minContract + 1) continue;
-        push("sign", `Sign ${fa.name} (OVR ${fa.s.ovr}, ${fmtMoney(fa.ask)} through ${fa.exp}, value +${fa.surplus.toFixed(1)})`, () => sign(L, fa), [fa.pid]);
-        size++; payroll += fa.ask; signed++;
+        // Three-season payroll check: keeps room to re-sign young starters and pay first-round picks.
+        const fit = size < L.capInfo.minRoster ? { ok: true } : fitsPlan(L, plan, fa.ask, fa.exp, extraRoom);
+        if (!fit.ok) continue;
+        const row = plan[0];
+        push("sign", `Sign ${fa.name} (OVR ${fa.s.ovr}, ${fmtMoney(fa.ask)} through ${fa.exp}, value +${fa.surplus.toFixed(1)})`, () => sign(L, fa, "", acts.find((a) => a.pids[0] === fa.pid && a.kind === "sign").ex), [fa.pid], {
+          sig: `sign:${fa.pid}`,
+          ex: ex(size < L.capInfo.minRoster ? `Roster below the minimum (${size}/${L.capInfo.minRoster}).` : `Positive value for ${st.label}; fits the three-season payroll plan.`,
+            [`value ${sgn(fa.surplus)}`, `roster ${size} → ${size + 1}`],
+            [`${fmtMoney(fa.ask)} a year through ${fa.exp}`, row && isFinite(row.limit) ? `${row.season} payroll ${fmtMoney(row.total + fa.ask)} of ${fmtMoney(row.limit)} limit (incl. ${fmtMoney(row.reserve)} reserved)` : ""].filter(Boolean)),
+        });
+        size++; payroll += fa.ask; signed++; signedPay += fa.ask;
         if (acts.filter((a) => a.kind === "sign").length >= 3) break;
       }
     }
     if (m.trades && includeTrades && tradesAllowed(L)) {
       const { ideas } = await tradeIdeas(L, { shop: 3 });
-      // Don't take on more players than the roster holds: the manager would just release someone it traded for.
-      const best = ideas.find((x) => isNecessary(L, x.impact, settings) && !x.ruleBreak && x.rosterAfter + signed <= L.capInfo.maxRoster);
+      // Don't take on more players than the roster holds, don't undo recent moves, don't retry rejected deals.
+      const hardOk = (x) => L.capInfo.type !== "hard" || !L.capInfo.cap || L.capInfo.payroll + signedPay + PR().tradePayrollDelta(L, x.teams) <= L.capInfo.cap;
+      const best = ideas.find((x) => isNecessary(L, x.impact, settings) && !x.ruleBreak && x.rosterAfter + signed <= L.capInfo.maxRoster && hardOk(x) && !memoryBlock(L, mem, x.teams, x.impact.score));
       if (best) {
         const why = impactText(L, best.impact);
+        const exT = explainTrade(L, best.impact);
         push("trade", `Trade ${best.desc.give.join(", ")} to ${best.desc.team} for ${best.desc.get.join(", ")} (${why})`, async () => {
-          const r = await proposeTrade(L, best.teams, why);
+          const r = await proposeTrade(L, best.teams, why, exT);
           if (!r || !r.accepted) throw new Error((r && r.message) || "Trade rejected");
           return r;
-        }, [...best.teams[0].pids, ...best.teams[1].pids], { approval: best.protect === "ask", why: best.protect === "ask" ? `Ask first: ${PR().protectedNames(L, best.teams[0].pids, best.teams[0].dpids, "ask").join(", ")}` : "" });
+        }, [...best.teams[0].pids, ...best.teams[1].pids], { approval: best.protect === "ask", why: best.protect === "ask" ? `Ask first: ${PR().protectedNames(L, best.teams[0].pids, best.teams[0].dpids, "ask").join(", ")}` : "",
+          sig: `trade:${SG.sigOf(best.teams)}`, ex: exT });
       }
     }
     return acts;
   }
 
   /**
-   * A trade is only made when it makes the team better on the goal that fits its timeline:
-   *  contend: team rating now (= record) goes up, and long-term value doesn't collapse
-   *  rebuild: team rating over the next two seasons goes up, and total value goes up
-   *  balanced: both don't get worse and at least one improves
+   * A trade is only made when it clears the minimum improvement for the active strategy's objective
+   * (see strategy.js: rating now vs the next two seasons, value, picks, youth, aging, payroll, roster fit).
    * Each accepted trade must strictly improve the team, so the manager can't churn back and forth.
    */
   function isNecessary(L, im, settings) {
     const min = settings.tradeMinMov ?? 0.5;
-    if (L.mode === "contend") return im.now >= min && im.future > -2 * min && im.value > -40;
-    if (L.mode === "rebuild") return im.future >= min && im.value > 0;
-    return im.now >= -0.1 && im.future >= -0.1 && (im.now + im.future) / 2 >= min;
+    const key = (L.strategy && L.strategy.key) || (L.mode === "contend" ? "contend" : L.mode === "rebuild" ? "rebuild" : "develop");
+    return SG.tradeOk(key, im, min);
   }
   function impactText(L, im) {
     const f = (x) => `${x >= 0 ? "+" : ""}${x.toFixed(1)}`;
     return `team rating ${f(im.now)} now (~${f(im.winsNow)} wins), ${f(im.future)} next 2 seasons`;
   }
 
-  async function runActions(acts) {
+  // Moves already made at a given game state, so a re-render, retry or double click can't repeat them.
+  const doneLedger = new Set();
+  /**
+   * Runs actions in order with safeguards:
+   *  - shouldStop(): stop between actions (never in the middle of one)
+   *  - check(a): re-validates the game state before each action (e.g. BBGM started simulating, or the
+   *    phase/day changed since the plan was made); the rest of a stale plan is skipped
+   *  - stateKey: with each action's signature, makes actions idempotent per game state
+   * Failures are logged and counted; an action that keeps failing is left out of later plans for a while.
+   */
+  async function runActions(acts, { stateKey, check, shouldStop } = {}) {
     const results = [];
-    for (const a of acts) {
+    const mem = await loadMem();
+    for (let i = 0; i < acts.length; i++) {
+      const a = acts[i];
+      if (shouldStop && shouldStop()) { acts.slice(i).forEach((x) => results.push({ a: x, ok: false, skipped: true, error: "stopped" })); break; }
+      const key = stateKey ? `${stateKey}|${a.sig || a.text}` : null;
+      if (key && doneLedger.has(key)) { results.push({ a, ok: false, skipped: true, error: "already done" }); continue; }
+      if (check) {
+        const bad = await check(a).catch((e) => e.message);
+        if (bad) { acts.slice(i).forEach((x) => results.push({ a: x, ok: false, skipped: true, error: bad })); break; }
+      }
       try {
         const r = await a.run();
-        if (a.kind !== "trade" && a.kind !== "sign") await S.addLog({ kind: a.kind, text: a.text, pids: a.pids, undoKey: typeof r === "number" ? r : undefined });
+        if (key) { doneLedger.add(key); if (doneLedger.size > 2000) doneLedger.delete(doneLedger.values().next().value); }
+        if (a.kind !== "trade" && a.kind !== "sign") await S.addLog({ kind: a.kind, text: a.text, pids: a.pids, undoKey: typeof r === "number" ? r : undefined, ex: a.ex || undefined });
         results.push({ a, ok: true });
       } catch (e) {
-        await S.addLog({ kind: "error", text: `${a.text} failed: ${e.message}`, pids: a.pids });
+        const n = SG.recordFail(mem, a.sig || a.text, activeLidClock());
+        await S.addLog({ kind: "error", text: `${a.text} failed: ${e.message}${n >= 3 ? " (failed 3 times; paused for a while)" : ""}`, pids: a.pids });
         results.push({ a, ok: false, error: e.message });
       }
     }
+    SG.pruneMemory(mem, activeLidClock());
+    await saveMem();
     return results;
   }
+  let lastClock = 0;
+  const activeLidClock = () => lastClock;
+  /** Call after building a league model so failure memory uses the game clock. */
+  function noteClock(L) { lastClock = clockOf(L); }
 
   /** Should the manager look for trades now? Trades are slow to search, so they're rate-limited. */
   async function tradeDue(lid, L, settings) {
@@ -502,5 +672,6 @@
   root.BBGMScoutFeatures = {
     gemVerdict, gemList, tradeIdeas, proposeTrade, evaluateCurrentTrade, targets, buildOfferFor, freeAgents, sign,
     draftBoard, tierCounts, tradeDownIdeas, draftStep, managerPlan, runActions, tradeDue, isNecessary, impactText, minutesPlan, nextPlayAction, stopHere, tradesAllowed, PT, fmtMoney,
+    explainTrade, payrollPlan, fitsPlan, setLeague, loadMem, saveMem, memoryBlock, clockOf, noteClock,
   };
 })(globalThis);

@@ -12,6 +12,7 @@
   const F = globalThis.BBGMScoutFeatures;
   const R = globalThis.BBGMScoutRealism;
   const P = globalThis.BBGMScoutPlanning;
+  const SG = globalThis.BBGMScoutStrategy;
   const MB = globalThis.BBGMScoutMoneyball;
   const ext = globalThis.chrome || globalThis.browser;
 
@@ -116,7 +117,19 @@
     st.building = (async () => {
       st.buildMsg = "Reading league…"; render();
       const snap = await B.snapshot();
-      const L = await LG.build(snap, settings, (f) => { st.buildMsg = `Analyzing players… ${Math.round(f * 100)}%`; render(); });
+      const sid = st.league || `lid${lidNow()}`;
+      const stored = await S.getStrategy(sid);
+      const L = await LG.build(snap, settings, (f) => { st.buildMsg = `Analyzing players… ${Math.round(f * 100)}%`; render(); }, { strategyStored: stored });
+      F.setLeague(lidNow()); F.noteClock(L);
+      const dec = L.strategy.auto && L.strategy.decision;
+      if (dec && (!stored || stored.cp !== dec.cp || stored.key !== dec.key)) {
+        await S.setStrategy(sid, dec);
+        if (stored && stored.key !== dec.key) {
+          await S.addLog({ kind: "strategy", text: `Strategy (Auto): ${SG.STRATEGIES[stored.key] ? SG.STRATEGIES[stored.key].label : stored.key} → ${L.strategy.label}`,
+            ex: { why: `Re-evaluated at the ${dec.cp.split(":")[1]} checkpoint of ${dec.cp.split(":")[0]}; strength ${dec.strength} cleared the hysteresis margin.`, benefits: L.strategy.reasons, costs: [], strategy: L.strategy.label, basis: "projected" } });
+          st.log = await S.getLog();
+        }
+      }
       st.L = L; st.LKey = k;
       if (settings.features.realism) refreshRealism(L).then(() => { if (st.tab === "realism") render(); });
       return L;
@@ -152,10 +165,15 @@
     });
     shadow.addEventListener("input", (e) => { if (e.target.id === "askq") st.ask.q = e.target.value; });
     shadow.addEventListener("change", async (e) => {
-      const seasons = e.target.closest("select[data-apseasons]");
-      if (seasons) {
-        settings.apSeasons = Math.max(1, Math.min(100, Number(seasons.value) || 1));
-        await S.saveSettings({ apSeasons: settings.apSeasons });
+      const ctl = e.target.closest("[data-set]");
+      if (ctl) {
+        const k = ctl.dataset.set;
+        let v = ctl.type === "number" ? Number(ctl.value) : ctl.value;
+        if (ctl.type === "number") v = Math.max(Number(ctl.min || -1e9), Math.min(Number(ctl.max || 1e9), Number.isFinite(v) ? v : 0));
+        if (k === "apSeasons") v = Math.max(1, Math.min(100, Number(v) || 1));
+        settings[k] = v;
+        await S.saveSettings({ [k]: v });
+        if (k === "teamMode") { invalidate(); st.trades.ideas = null; st.pending = null; }
         render();
         return;
       }
@@ -254,6 +272,15 @@
   .log time { color:var(--mut); flex:none; }
   select.prot { font:inherit; font-size:11px; padding:1px 3px; border-radius:6px; border:1px solid var(--line); background:var(--bg); color:var(--fg); max-width:118px; }
   label.apseasons { display:flex; align-items:center; gap:6px; } label.apseasons select { font:inherit; padding:2px 4px; border-radius:6px; border:1px solid var(--line); background:var(--bg); color:var(--fg); }
+  .dash { display:grid; grid-template-columns:1fr 1fr; gap:6px 10px; align-items:center; }
+  .dash label { display:flex; flex-direction:column; gap:2px; font-size:11px; color:var(--mut); }
+  .dash select, .dash input, .adv select, .adv input { font:inherit; font-size:12px; padding:2px 4px; border-radius:6px; border:1px solid var(--line); background:var(--bg); color:var(--fg); }
+  .dash .full { grid-column:1 / -1; }
+  details { margin:4px 0; } details > summary { cursor:pointer; color:var(--mut); font-size:12px; }
+  .adv { display:grid; grid-template-columns:1fr; gap:6px; margin-top:6px; } .adv label { display:flex; justify-content:space-between; gap:8px; align-items:center; font-size:12px; }
+  .adv input[type=number] { width:64px; }
+  .ex { font-size:11px; color:var(--mut); margin:2px 0 4px; } .ex b { color:var(--fg); font-weight:600; } .ex ul { margin:2px 0 0 14px; padding:0; }
+  .sum td, .sum th { font-size:11.5px; }
   select.prot.never { border-color:var(--bad); } select.prot.ask { border-color:var(--warn); }
   .warn-line { color:var(--warn); font-size:11px; margin-top:3px; }
   .flag { border-left:3px solid var(--line); padding:5px 8px; margin-bottom:6px; background:var(--chip); border-radius:6px; font-size:12px; }
@@ -476,7 +503,7 @@
     };
     const pid = pidNow();
     const context = {
-      season: L.snap.season, phase: L.snap.phase, yourTeam: L.user ? `${L.user.region} ${L.user.name}` : "", strategy: L.mode,
+      season: L.snap.season, phase: L.snap.phase, yourTeam: L.user ? `${L.user.region} ${L.user.name}` : "", strategy: L.strategy ? L.strategy.label : L.mode,
       record: L.user ? `${L.user.won}-${L.user.lost}` : "", cap: L.capInfo,
       focusPlayer: pid ? { ...brief(pid), verdict: F.gemVerdict(L, pid) } : null,
       yourRoster: L.roster(L.snap.userTid).map((p) => brief(p.pid)).filter(Boolean),
@@ -534,6 +561,7 @@
       neverNames.length ? `Includes Never-trade: ${neverNames.join(", ")}` : "",
       askNames.length ? `Includes Ask-first: ${askNames.join(", ")}` : "",
       rb ? `Breaks your rules: ${rb}` : "",
+      idea.blocked ? `Manager won't make this automatically: ${idea.blocked}` : "",
       idea.rosterAfter > L.capInfo.maxRoster ? `Leaves your roster at ${idea.rosterAfter}/${L.capInfo.maxRoster}: you'd have to release ${idea.rosterAfter - L.capInfo.maxRoster} player${idea.rosterAfter - L.capInfo.maxRoster === 1 ? "" : "s"}` : "",
     ].filter(Boolean);
     if (neverNames.length) propose = false;
@@ -556,16 +584,16 @@
       html += `<div class="h">Deal on the trade screen</div><div class="card"><div class="hd"><b>${esc(c.desc.team)}</b><span class="chip ${verdict[1] === "good" ? "gem" : verdict[1] === "bad" ? "over" : ""}">${verdict[0]}</span></div>
         <div class="why">${esc(F.impactText(L, im))}</div>
         <table>${[...c.get, ...c.give].map((r) => `<tr><td>${r.value >= 0 ? "Get" : "Give"} ${r.pid != null ? plink(r.pid, r.label) : esc(r.label)}</td><td class="${r.value >= 0 ? "good" : "bad"}">${num(r.value)}</td></tr>`).join("")}</table>
-        <div class="why">Per-asset value = forecast on-court value for your ${esc(L.mode)} timeline, minus salary.</div></div>`;
+        <div class="why">Per-asset value = forecast on-court value for your ${esc(L.strategy.label)} strategy, minus salary.</div></div>`;
     }
     const refresh = on(() => { st.trades.ideas = null; invalidate(); refreshTrades(); });
-    html += `<div class="h">Suggested trades <span class="mut">(${esc(L.mode)} mode)</span></div>`;
+    html += `<div class="h">Suggested trades <span class="mut">(${esc(L.strategy.label)})</span></div>`;
     if (st.trades.busy) html += `<div class="msg">${esc(st.trades.msg || "Searching…")}</div>`;
     else if (!st.trades.ideas) html += `<div class="msg">Not searched yet.</div>`;
     else if (!st.trades.ideas.length) html += `<div class="msg">${esc(st.trades.note || "No trade improves your team right now.")}</div>`;
     else html += st.trades.ideas.map((i) => tradeCard(L, i)).join("");
     html += `<div class="actions"><button data-h="${refresh}" ${st.trades.busy ? "disabled" : ""}>Search again</button></div>
-      <div class="why">Each offer is one an AI team would actually accept (built by BBGM's trade AI), ranked by how much it improves your team rating (${L.mode === "contend" ? "now" : L.mode === "rebuild" ? "over the next two seasons" : "now and over the next two seasons"}).${settings.tradeOnGameDay ? " Refreshes every game day." : ""}</div>`;
+      <div class="why">Each offer is one an AI team would actually accept (built by BBGM's trade AI), ranked by a multi-season score for your ${esc(L.strategy.label)} strategy (team rating now and over the next two seasons, value, picks, young talent, aging, payroll and roster fit).${settings.tradeOnGameDay ? " Refreshes every game day." : ""}</div>`;
     return html;
   }
 
@@ -586,7 +614,7 @@
       return html;
     }
     const list = F.targets(L, 12);
-    html += `<div class="h">Players worth adding <span class="mut">(${esc(L.mode)} mode)</span></div>`;
+    html += `<div class="h">Players worth adding <span class="mut">(${esc(L.strategy.label)})</span></div>`;
     html += list.length ? `<table><tr><th>Player</th><th>Age</th><th>OVR</th><th>Peak</th><th>Value</th><th></th></tr>${list.map((t) => {
       const b = on(async (el) => {
         el.disabled = true; el.textContent = "…";
@@ -621,7 +649,7 @@
       return `<tr><td>${plink(f.pid, f.name)}<small>${esc(f.s.pos || "")}${f.gem >= 7 ? " · gem" : ""}${f.why ? ` · ${esc(f.why)}` : ""}</small></td><td>${f.s.age}</td><td>${f.s.ovr}</td><td>${f.s.peakOvr}</td>
         <td>${F.fmtMoney(f.ask)}<small>thru ${f.exp}</small></td><td class="${f.surplus > 0 ? "good" : "bad"}">${f.surplus.toFixed(0)}</td>
         <td>${f.canSign ? `<button class="sm" data-h="${b}">Sign</button>` : ""}</td></tr>`;
-    }).join("")}</table><div class="why">Value = forecast on-court value minus the asking salary, for your ${esc(L.mode)} timeline. Asking prices come from each player's mood toward your team.</div>`;
+    }).join("")}</table><div class="why">Value = forecast on-court value minus the asking salary, for your ${esc(L.strategy.label)} strategy. Asking prices come from each player's mood toward your team.</div>`;
     return html;
   }
 
@@ -675,44 +703,90 @@
       const L = await getL();
       const td = await F.tradeDue(lidNow(), L, settings);
       st.pending = await F.managerPlan(L, settings, { lid: lidNow(), includeTrades: settings.manage.trades && td.due && td });
+      st.pendingKey = progressKey(st.poll);
       if (td.due) td.mark();
     } catch (e) { st.flash = e.message; }
     render();
   }
+  const exHtml = (ex) => !ex ? "" : `<details class="ex"><summary>Why</summary><div>${esc(ex.why || "")}${ex.strategy ? ` <span class="chip">${esc(ex.strategy)}</span>` : ""} <span class="mut">(${esc(ex.basis || "projected")})</span></div>
+    ${ex.benefits && ex.benefits.length ? `<div><b>Benefits</b><ul>${ex.benefits.map((b) => `<li>${esc(b)}</li>`).join("")}</ul></div>` : ""}
+    ${ex.costs && ex.costs.length ? `<div><b>Costs</b><ul>${ex.costs.map((b) => `<li>${esc(b)}</li>`).join("")}</ul></div>` : ""}</details>`;
+
+  function summaryHtml(sm) {
+    if (!sm) return "";
+    const pct = (x) => (x == null ? "–" : (x * 100).toFixed(1) + "%");
+    const m = (x) => (x == null ? "–" : F.fmtMoney(x));
+    const t = sm.trades;
+    return `<details class="card" ${st.ap.justFinished ? "open" : ""}><summary><b>Last Autopilot run</b> · ${sm.from}${sm.to !== sm.from ? `–${sm.to}` : ""} · ${sm.seasons.length} season${sm.seasons.length === 1 ? "" : "s"} with games</summary>
+      <table class="sum">
+        <tr><td>Championships</td><td><b>${sm.titles}</b></td></tr>
+        <tr><td>Playoff appearances</td><td>${sm.playoffApps} of ${sm.seasons.length}</td></tr>
+        <tr><td>Regular-season win %</td><td>${pct(sm.winPct)}</td></tr>
+        <tr><td>Salary spent per win</td><td>${m(sm.payrollPerWin)} <small class="mut">(league average ${m(sm.leaguePayrollPerWin)}, for reference)</small></td></tr>
+        <tr><td>Trades</td><td>${t.count}${t.withNumbers ? ` <small class="mut">(projected at the time: ${t.projectedNow >= 0 ? "+" : ""}${t.projectedNow.toFixed(1)} rating now, ${t.projectedFuture >= 0 ? "+" : ""}${t.projectedFuture.toFixed(1)} future, summed)</small>` : ""}</td></tr>
+        <tr><td>Other moves</td><td>${sm.moves.signings} signed, ${sm.moves.resignings} re-signed, ${sm.moves.letWalk} let go, ${sm.moves.releases} released${sm.moves.errors ? `, <span class="bad">${sm.moves.errors} failed</span>` : ""}</td></tr>
+        <tr><td>Roster turnover</td><td>${sm.turnover} of ${sm.rosterStartSize} starting players gone</td></tr>
+      </table>
+      ${sm.drafts.length ? `<details><summary>Draft picks (${sm.drafts.length})</summary><div class="ex"><ul>${sm.drafts.map((d) => `<li>${esc(d)}</li>`).join("")}</ul></div></details>` : ""}
+      ${sm.strategyChanges.length ? `<details><summary>Strategy changes (${sm.strategyChanges.length})</summary><div class="ex"><ul>${sm.strategyChanges.map((d) => `<li>${esc(d)}</li>`).join("")}</ul></div></details>` : ""}
+      ${sm.seasons.length ? `<details><summary>Season by season</summary><table class="sum"><tr><th>Season</th><th>Record</th><th>Playoffs</th><th>Strategy</th></tr>${sm.seasons.map((x) =>
+        `<tr><td>${x.season}</td><td>${x.won}-${x.lost}${x.tied ? `-${x.tied}` : ""}</td><td class="${x.champion ? "good" : ""}">${esc(x.playoffs)}</td><td>${esc(x.strategy || "")}</td></tr>`).join("")}</table></details>` : ""}
+      <div class="why">Observed results from BBGM's records. League averages are context only; this isn't a comparison against what would have happened without Autopilot.</div>
+    </details>`;
+  }
+
   function managerBody() {
     let html = "";
-    if (settings.features.autopilot) {
-      const start = on(() => startAutopilot());
-      const stop = on(() => stopAutopilot());
-      html += `<div class="h">Autopilot</div><div class="card">
-        <div class="sub">Plays ${settings.apStep === "week" ? "a week" : "a day"} at a time for ${settings.apSeasons} season${settings.apSeasons === 1 ? "" : "s"}${settings.apStopAt !== "never" ? `, stopping at ${esc(settings.apStopAt)}` : ""}. Before every step it runs the manager: finances, lineup, minutes, re-signings, cuts, signings, trades and the draft.</div>
-        <div class="actions"><label class="apseasons">Seasons to play <select data-apseasons title="How many seasons Autopilot plays before it stops (1–100)"${st.ap.running ? " disabled" : ""}>${Array.from({ length: 100 }, (_, i) => i + 1).map((n) => `<option value="${n}"${n === settings.apSeasons ? " selected" : ""}>${n}</option>`).join("")}</select></label></div>
-        ${st.ap.running ? `<div class="banner acc">${esc(st.ap.status || "Running…")}</div>` : st.ap.status ? `<div class="why">${esc(st.ap.status)}</div>` : ""}
-        <div class="actions">${st.ap.running ? `<button data-h="${stop}">Stop</button>` : `<button class="pri" data-h="${start}">Start autopilot</button>`}</div></div>`;
-    }
-    if (settings.features.manager) {
+    const L = st.L;
+    const waiting = (st.pending || []).filter((a) => a.approval).length;
+    // ---- Dashboard: Strategy, Seasons, Approvals, Run ----
+    const stratOpts = [["auto", "Auto"], ...SG.ORDER.map((k) => [k, SG.STRATEGIES[k].label])];
+    const curMode = SG.manualChoice(settings.teamMode) || "auto";
+    const stratNow = L && L.strategy ? L.strategy : null;
+    html += `<div class="card"><div class="dash">
+      <label>Strategy<select data-set="teamMode" title="Auto picks a strategy from your roster, projections, cap and picks, and re-checks it at the start of the season, mid-season and in the offseason">${stratOpts.map(([k, l]) => `<option value="${k}"${k === curMode ? " selected" : ""}>${l}${k === "auto" && stratNow && stratNow.auto ? ` (${esc(stratNow.label)})` : ""}</option>`).join("")}</select></label>
+      ${settings.features.autopilot ? `<label>Seasons<select data-set="apSeasons" title="How many seasons Autopilot plays before it stops (1–100)"${st.ap.running ? " disabled" : ""}>${Array.from({ length: 100 }, (_, i) => i + 1).map((n) => `<option value="${n}"${n === settings.apSeasons ? " selected" : ""}>${n}</option>`).join("")}</select></label>` : "<span></span>"}
+      <div class="full">${stratNow ? `<details class="ex"><summary>${esc(stratNow.label)}: ${esc(stratNow.goal)}</summary><ul>${(stratNow.reasons || []).map((r) => `<li>${esc(r)}</li>`).join("")}</ul></details>` : ""}</div>
+      <span class="mut">${waiting ? `<span class="warn">${waiting} move${waiting === 1 ? "" : "s"} waiting for your OK</span>` : "No approvals waiting"}</span>
+      ${settings.features.autopilot ? `<span style="text-align:right">${st.ap.running ? `<button data-h="${on(() => stopAutopilot())}">Stop</button>` : `<button class="pri" data-h="${on(() => startAutopilot())}">Run Autopilot</button>`}</span>` : "<span></span>"}
+    </div>
+    ${settings.features.autopilot && st.ap.running ? `<div class="banner acc">${esc(st.ap.status || "Running…")}</div>` : st.ap.status ? `<div class="why">${esc(st.ap.status)}</div>` : ""}
+    <details><summary>Advanced settings</summary><div class="adv">
+      <label>Manager mode<select data-set="managerMode"><option value="suggest"${settings.managerMode !== "auto" ? " selected" : ""}>Suggest (you approve)</option><option value="auto"${settings.managerMode === "auto" ? " selected" : ""}>Fully automatic</option></select></label>
+      ${settings.features.autopilot ? `<label>Autopilot step<select data-set="apStep"><option value="day"${settings.apStep !== "week" ? " selected" : ""}>A day</option><option value="week"${settings.apStep === "week" ? " selected" : ""}>A week</option></select></label>
+      <label>Stop at checkpoint<select data-set="apStopAt">${[["never", "Never"], ["playoffs", "Playoffs"], ["draft", "Draft"], ["freeAgency", "Free agency"]].map(([k, l]) => `<option value="${k}"${settings.apStopAt === k ? " selected" : ""}>${l}</option>`).join("")}</select></label>` : ""}
+      <label title="Minimum trade score in team-rating points (1 point ≈ 2.7 wins over 82 games)">Minimum trade improvement<input type="number" data-set="tradeMinMov" min="0.1" max="10" step="0.1" value="${settings.tradeMinMov ?? 0.5}"></label>
+      <label title="Game days before a newly acquired player can be traded again. Trades scoring 3× the minimum are allowed anyway; players are never sent back to the team they came from during the cooldown.">Trade cooldown (game days)<input type="number" data-set="tradeCooldownDays" min="0" max="200" value="${settings.tradeCooldownDays ?? 30}"></label>
+      <label title="Searching is slow; raise this if sims feel sluggish">Search for trades every N game days<input type="number" data-set="tradeEveryDays" min="1" max="82" value="${settings.tradeEveryDays || 1}"></label>
+    </div></details></div>`;
+
+    if (settings.features.manager || settings.features.autopilot) {
       const refresh = on(() => { st.pending = null; invalidate(); render(); refreshPending(); });
-      html += `<div class="h">${st.ap.running ? "Autopilot is managing the team" : settings.managerMode === "auto" ? "Automatic management is on" : "Suggested moves"}</div>`;
-      if (st.ap.running) html += `<div class="why">Autopilot makes these moves itself before every step and logs them below. Only moves that need your OK (Ask-first players or picks, or moves that break your contract rules) wait here.</div>`;
-      else if (settings.managerMode === "auto") html += `<div class="why">Runs after every game day and phase change. Everything it does is logged below.</div>`;
+      html += `<div class="h">${st.ap.running ? "Waiting for your OK" : settings.managerMode === "auto" ? "Automatic management is on" : "Suggested moves"}</div>`;
+      if (st.ap.running) html += `<div class="why">Autopilot makes the other moves itself before every step and logs them below. Only moves that need your OK (Ask-first players or picks, or moves that break your contract rules) wait here.</div>`;
+      else if (settings.managerMode === "auto") html += `<div class="why">Runs after every game day and phase change. Everything it does is logged below with its reasons.</div>`;
       if (!st.pending) html += needL() || `<div class="msg">Planning…</div>`;
       else if (!st.pending.length) html += `<div class="msg">Nothing to change right now.</div>`;
       else {
-        const all = on(async () => { const acts = st.pending; st.pending = null; render(); await F.runActions(acts); invalidate(); st.log = await S.getLog(); refreshPending(); });
+        const planKey = st.pendingKey;
+        const check = async () => { const p = await B.poll(); if (p.gameSim || p.drafting) return "BBGM is simulating; try again when it stops"; if (planKey && progressKey(p) !== planKey) return "the game moved on since this plan was made; press Re-plan"; return null; };
+        const after = async (res) => { const bad = res.find((r) => r.skipped && r.error !== "already done"); if (bad) st.flash = `Not done: ${bad.error}`; invalidate(); st.log = await S.getLog(); refreshPending(); };
+        const all = on(async (el) => { el.disabled = true; const acts = st.pending; st.pending = null; render(); await after(await F.runActions(acts, { stateKey: planKey, check })); });
         html += st.pending.map((a, i) => {
-          const one = on(async () => { const [x] = st.pending.splice(i, 1); render(); await F.runActions([x]); invalidate(); st.log = await S.getLog(); refreshPending(); });
+          const one = on(async (el) => { el.disabled = true; const [x] = st.pending.splice(i, 1); render(); await after(await F.runActions([x], { stateKey: planKey, check })); });
           const skip = on(() => { st.pending.splice(i, 1); render(); });
           return `<div class="card"><div class="hd"><span><span class="chip">${esc(a.kind)}</span> ${linkText(a.text, a.pids)}${a.approval ? `<div class="warn-line">Needs your OK: ${esc(a.why || "protected asset")}</div>` : ""}</span></div>
-            <div class="actions"><button class="sm pri" data-h="${one}">Do it</button><button class="sm" data-h="${skip}">Skip</button></div></div>`;
-        }).join("") + `<div class="actions"><button class="pri" data-h="${all}">Do all ${st.pending.length}</button></div>`;
+            ${exHtml(a.ex)}<div class="actions"><button class="sm pri" data-h="${one}">Do it</button><button class="sm" data-h="${skip}">Skip</button></div></div>`;
+        }).join("") + (st.ap.running ? "" : `<div class="actions"><button class="pri" data-h="${all}">Do all ${st.pending.length}</button></div>`);
       }
       html += `<div class="actions"><button class="sm" data-h="${refresh}">Re-plan</button></div>`;
     }
+    if (st.apSummary) html += summaryHtml(st.apSummary);
     html += `<div class="h">Activity log</div>`;
     const clear = on(async () => { await S.clearLog(); st.log = []; render(); });
     html += st.log.length ? `<div class="log">${st.log.slice(0, 30).map((e) => {
       const u = e.undoKey != null && !e.undone ? on(async (el) => { el.disabled = true; try { await B.call("undoLog", "undo", e.undoKey); await S.markUndone(e.t); st.log = await S.getLog(); st.flash = "Undone."; } catch (err) { st.flash = `Can't undo: ${err.message}`; } invalidate(); render(); setTimeout(() => { st.flash = ""; render(); }, 6000); }) : null;
-      return `<div><span class="${e.kind === "error" ? "bad" : ""}">${linkText(e.text, e.pids)}${e.undone ? ` <small class="mut">(undone)</small>` : ""}</span><span>${u ? `<button class="sm" data-h="${u}">Undo</button> ` : ""}<time>${new Date(e.t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time></span></div>`;
+      return `<div><span class="${e.kind === "error" ? "bad" : ""}">${linkText(e.text, e.pids)}${e.undone ? ` <small class="mut">(undone)</small>` : ""}${exHtml(e.ex)}</span><span>${u ? `<button class="sm" data-h="${u}">Undo</button> ` : ""}<time>${new Date(e.t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time></span></div>`;
     }).join("")}</div><div class="actions"><button class="sm" data-h="${clear}">Clear log</button></div>` : `<div class="msg">No actions yet.</div>`;
     return html;
   }
@@ -887,8 +961,15 @@
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   async function waitIdle(timeoutMs = 20 * 60 * 1000) {
     const t0 = Date.now();
+    let errs = 0;
     for (;;) {
-      const p = await B.poll();
+      let p;
+      try { p = await B.poll(); errs = 0; } catch (e) {
+        // BBGM's worker can be busy for a moment (e.g. right after Stop); retry a few times before giving up.
+        if (++errs >= 8) throw e;
+        await sleep(1000);
+        continue;
+      }
       if (!p.gameSim && !p.drafting) return p;
       if (Date.now() - t0 > timeoutMs) throw new Error("BBGM is taking too long");
       if (st.ap.stopReq) return p;
@@ -897,32 +978,41 @@
   }
   async function startAutopilot() {
     if (st.ap.running) return;
-    st.ap = { running: true, status: "Starting…", startSeason: null, stopReq: false };
+    st.ap = { running: true, status: "Starting…", startSeason: null, stopReq: false, runStart: Date.now(), strategies: {}, rosterStart: null };
     render();
     // Autopilot must make every decision the game would otherwise stop and ask you about.
     const apSettings = () => ({ ...settings, manage: { ...settings.manage, resign: true, releases: true, signings: true } });
-    const failed = new Set();
-    let stuck = 0, rounds = 0, roundsKey = "";
+    let stuck = 0, rounds = 0, roundsKey = "", idle = 0, idleKey = "";
+    let lastL = null;
     try {
       for (;;) {
         if (st.ap.stopReq) { st.ap.status = "Stopped."; break; }
         let poll = await waitIdle();
+        if (st.ap.stopReq) { st.ap.status = "Stopped."; break; }
         if (!poll.inLeague) throw new Error("Not in a league");
+        if (poll.multiTeam || poll.spectator) throw new Error("Autopilot needs a single user team (not multi-team or spectator mode)");
         if (st.ap.startSeason == null) st.ap.startSeason = poll.season;
         const reason = F.stopHere(poll, settings, st.ap.startSeason);
         if (reason && stuck === 0 && st.ap.lastKey) { st.ap.status = `Finished: ${reason}.`; break; }
+        // Loop guard: many manager rounds without the game moving means something keeps failing.
+        const pk = progressKey(poll);
+        idle = idleKey === pk ? idle + 1 : 0; idleKey = pk;
+        if (idle >= 8) throw new Error("The game hasn't moved after several manager rounds; stopping to avoid a loop");
         st.poll = poll; st.pollKey = keyOf(poll);
         invalidate();
         st.ap.status = "Managing the team…"; render();
         const L = await getL(true);
+        lastL = L;
+        if (!st.ap.rosterStart) st.ap.rosterStart = L.roster(L.snap.userTid).map((p) => p.pid);
+        const ss = (st.ap.strategies[poll.season] = st.ap.strategies[poll.season] || []);
+        if (ss[ss.length - 1] !== L.strategy.label) ss.push(L.strategy.label);
         const s2 = apSettings();
         const td = await F.tradeDue(lidNow(), L, s2);
-        const planned = (await F.managerPlan(L, s2, { lid: lidNow(), includeTrades: s2.manage.trades && td.due && td })).filter((a) => !failed.has(`${keyOf(poll)}|${a.text}`));
+        const planned = await F.managerPlan(L, s2, { lid: lidNow(), includeTrades: s2.manage.trades && td.due && td });
         const waiting = planned.filter((a) => a.approval);
         const acts = planned.filter((a) => !a.approval);
-        // Autopilot makes every other move itself, so the list only keeps what needs your OK
-        // (never a stale "Do it / Skip" list from before Autopilot started).
-        st.pending = waiting;
+        // Autopilot makes every other move itself, so the list only keeps what needs your OK.
+        st.pending = waiting; st.pendingKey = pk;
         // Re-signing can't continue past undecided protected players, so hand control back.
         if (poll.phase === 7 && waiting.some((a) => a.kind === "resign" || a.kind === "letwalk") && !acts.length) {
           st.ap.status = `Paused: ${waiting.length} move${waiting.length === 1 ? "" : "s"} need your OK (protected players or contract rules). Approve or skip them below, then start Autopilot again.`;
@@ -931,12 +1021,14 @@
         }
         if (td.due) await td.mark();
         if (acts.length) {
-          const res = await F.runActions(acts);
-          res.filter((r) => !r.ok).forEach((r) => failed.add(`${keyOf(poll)}|${r.a.text}`));
+          // Each action re-checks that BBGM is idle and still at the state the plan was made for;
+          // Stop takes effect between actions, never in the middle of one.
+          const check = async () => { const p = await B.poll(); if (p.gameSim || p.drafting) return "BBGM started simulating"; if (progressKey(p) !== pk) return "the game moved on since the plan was made"; return null; };
+          const res = await F.runActions(acts, { stateKey: pk, check, shouldStop: () => st.ap.stopReq });
           invalidate();
           st.log = await S.getLog(); render();
-          const k2 = keyOf(poll);
-          rounds = roundsKey === k2 ? rounds + 1 : 1; roundsKey = k2;
+          rounds = roundsKey === pk ? rounds + 1 : 1; roundsKey = pk;
+          if (st.ap.stopReq) { st.ap.status = "Stopped."; break; }
           if (res.some((r) => r.ok) && rounds < 3) continue; // re-check after changes (e.g. roster size)
         }
         if (poll.phase === 5 && poll.onClock === poll.userTid) {
@@ -952,7 +1044,7 @@
         await B.call("playMenu", action, undefined, 30 * 60 * 1000).catch((e) => { throw new Error(`${label} failed: ${e.message}`); });
         await sleep(600);
         poll = await waitIdle();
-        if (progressKey(poll) === before && poll.phase <= 3) {
+        if (progressKey(poll) === before && poll.phase <= 3 && !st.ap.stopReq) {
           // Some steps can be no-ops (for example, between playoff rounds). Fall back to playing a single day.
           st.ap.status = "Playing one day…"; render();
           await B.call("playMenu", "day", undefined, 30 * 60 * 1000).catch(() => {});
@@ -969,7 +1061,20 @@
     }
     st.ap.running = false;
     st.log = await S.getLog();
+    await buildSummary(lastL).catch((e) => { st.ap.status += ` (summary unavailable: ${e.message})`; });
+    st.ap.justFinished = true;
     render();
+  }
+  /** Observed results of the run (season records from BBGM) plus what the manager did (activity log). */
+  async function buildSummary(L) {
+    if (st.ap.startSeason == null) return;
+    const p = await B.poll();
+    const hist = await B.history(st.ap.startSeason, p.season);
+    const log = (await S.getLog()).filter((e) => e.t >= st.ap.runStart);
+    const end = (await B.evalJSON(`const ps = await bbgm.idb.cache.players.indexGetAll("playersByTid", bbgm.g.get("userTid")); console.log(JSON.stringify({ pids: ps.map((x) => x.pid) }));`, 15000)).pids;
+    st.apSummary = SG.summarizeRun({ rows: hist.rows, userTid: hist.userTid, nr: hist.nr, from: st.ap.startSeason, to: p.season, log,
+      strategies: st.ap.strategies, rosterStart: st.ap.rosterStart || [], rosterEnd: end });
+    await S.localSet(`apSummary:${lidNow()}`, st.apSummary);
   }
   async function stopAutopilot() {
     st.ap.stopReq = true;
@@ -1020,9 +1125,12 @@
         const td = await F.tradeDue(lidNow(), L, settings);
         const acts = await F.managerPlan(L, settings, { lid: lidNow(), includeTrades: settings.manage.trades && td.due && td });
         if (td.due) await td.mark();
+        const pk = progressKey(p);
+        st.pendingKey = pk;
         if (settings.managerMode === "auto" && acts.length) {
           const ok = acts.filter((a) => !a.approval);
-          if (ok.length) await F.runActions(ok);
+          const check = async () => { const q = await B.poll(); if (q.gameSim || q.drafting) return "BBGM started simulating"; if (progressKey(q) !== pk) return "the game moved on since the plan was made"; return null; };
+          if (ok.length) await F.runActions(ok, { stateKey: pk, check, shouldStop: () => st.ap.running });
           invalidate();
           st.pending = acts.filter((a) => a.approval); // "Ask first" moves wait for you even in automatic mode
           st.log = await S.getLog();
@@ -1167,7 +1275,7 @@
     rows.push(["Development trend", `<span class="${s.trend === "Above expected" ? "good" : s.trend === "Below expected" ? "bad" : ""}">${esc(s.trend)}</span>`]);
     rows.push(["Confidence", `<span class="${s.confidence === "High" ? "good" : s.confidence === "Low" ? "bad" : "warn"}">${esc(s.confidence)}</span>`]);
     if (v) {
-      rows.push([`Value to you (${esc(L.mode)})`, `<span class="${v.surplus >= 0 ? "good" : "bad"}">${num(v.surplus, 0)}</span>`]);
+      rows.push([`Value to you (${esc(L.strategy.label)})`, `<span class="${v.surplus >= 0 ? "good" : "bad"}">${num(v.surplus, 0)}</span>`]);
       if (v.p.tid === -1 && v.p.mood) rows.push(["Asking", `${F.fmtMoney(v.p.mood.contractAmount)}${v.p.mood.willing ? "" : " · <span class='bad'>won't sign</span>"}`]);
       else if (v.p.contract && v.p.tid >= 0) rows.push(["Contract", `${F.fmtMoney(v.p.contract.amount)} thru ${v.p.contract.exp}`]);
       if (v.prospect) {
@@ -1280,6 +1388,7 @@
       scheduleBadges();
     });
     st.log = await S.getLog();
+    if (lidNow()) st.apSummary = (await S.localGet(`apSummary:${lidNow()}`)) || null;
     document.addEventListener("mouseover", onHoverIn, true);
     document.addEventListener("mouseout", onHoverOut, true);
     window.addEventListener("scroll", hideTip, true);

@@ -119,3 +119,7 @@ node --test tests/engine.test.js
 ```
 
 Files: `src/engine.js` (simulation), `src/analyze.js` (player to summary), `src/league.js` (league-wide values, pick values, team rating), `src/features.js` (assistant, trades, targets, FA, drafter, manager, autopilot rules), `src/bridge-main.js` + `src/bridge.js` (allow-listed link to BBGM's engine), `src/content.js` (dock, autopilot loop, badges), `src/background.js` (Ask Claude), `src/data.js` (IndexedDB reader), `src/storage.js` (sync and device-only log), `popup/` (pins, reports, features, settings).
+
+## License
+
+[MIT](LICENSE) © 2026 topcommentgodyt-prog. The license covers BBGM Scout's own code. Basketball GM is a separate product by ZenGM; BBGM Scout isn't affiliated with or endorsed by it.

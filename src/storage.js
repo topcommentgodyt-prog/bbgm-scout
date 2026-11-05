@@ -54,6 +54,7 @@
     apStopAt: "never", // "never" | "playoffs" | "draft" | "freeAgency"
     claudeEnabled: false,
     claudeModel: "claude-opus-5-5",
+    redditSub: "BasketballGM", // subreddit the "Share to Reddit" buttons open (you still review and post)
   };
 
   let lastError = null;

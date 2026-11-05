@@ -600,6 +600,7 @@
       <div class="actions">
         <button data-h="${pin}" class="${o.pinned ? "on" : ""}">${o.pinned ? "★ Pinned" : "☆ Pin"}</button>
         <button data-h="${save}">Save report</button>
+        <button data-h="${on(() => shareToReddit(...outlookPost(o)))}" title="Opens Reddit's post form with this outlook filled in. You review it and press Post yourself.">Share to Reddit</button>
       </div>`;
   }
   function pinSummary(o) {
@@ -892,6 +893,56 @@
     ${ex.benefits && ex.benefits.length ? `<div><b>Benefits</b><ul>${ex.benefits.map((b) => `<li>${esc(b)}</li>`).join("")}</ul></div>` : ""}
     ${ex.costs && ex.costs.length ? `<div><b>Costs</b><ul>${ex.costs.map((b) => `<li>${esc(b)}</li>`).join("")}</ul></div>` : ""}</details>`;
 
+  // ======================================================================
+  // Share to Reddit: opens Reddit's own post form, pre-filled. Nothing is posted until you press Post there;
+  // no Reddit login or token ever touches the extension.
+  // ======================================================================
+  const REPO = "https://github.com/topcommentgodyt-prog/bbgm-scout";
+  const footer = `\n\n---\n*Made with [Courtside](${REPO}), a free browser extension for Basketball GM.*`;
+  function shareToReddit(title, text) {
+    const sub = String(settings.redditSub || "BasketballGM").replace(/^\/?r\//i, "").replace(/[^A-Za-z0-9_]/g, "") || "BasketballGM";
+    let body = text + footer;
+    if (body.length > 6000) body = `${body.slice(0, 5900)}\n\n…${footer}`; // keep the link a sane length
+    // old.reddit's submit form reliably pre-fills a text post from the URL (selftext=true&title=…&text=…).
+    const url = `https://old.reddit.com/r/${sub}/submit?selftext=true&title=${encodeURIComponent(title.slice(0, 300))}&text=${encodeURIComponent(body)}`;
+    window.open(url, "_blank", "noopener");
+  }
+  function outlookPost(o) {
+    const r = o.result, s = r.summary;
+    const preds = ovrPredictions(r);
+    const title = `${s.name} (${s.age}, ${s.ovr} OVR / ${s.pot} POT): projected ${preds.map((x) => x.ovr).join(" → ")}, Scout POT ${s.peakOvr}`;
+    const lines = [
+      `**${s.name}**: age ${s.age}, ${s.ovr} OVR, BBGM POT ${s.pot}${s.pos ? `, ${s.pos}` : ""}. Outlook: ${s.label}.`,
+      "",
+      "| Season | Age | Expected OVR | 80% range |", "|---|---|---|---|",
+      ...preds.map((x) => `| ${x.season} | ${x.age} | ${x.ovr} | ${x.lo}–${x.hi} |`),
+      "",
+      `- Scout POT (typical career high): **${s.peakOvr}** (BBGM POT ${s.pot}), ceiling (90th pct) ${s.ceiling}, peak age ${s.peakAge}`,
+      `- Breakout chance next season ${pct(s.breakout)}, decline risk ${pct(s.decline)}, bust risk ${pct(s.bust)}`,
+      `- Forecast confidence: ${s.confidence}`,
+      "",
+      `*From ${r.fc.nSims.toLocaleString()} simulations of BBGM's progression rules, using only ratings visible to the team.*`,
+    ];
+    return [title, lines.join("\n")];
+  }
+  function summaryPost(sm) {
+    const n = sm.seasons.length;
+    const pctS = (x) => (x == null ? "–" : `${(x * 100).toFixed(1)}%`);
+    const title = `Let Autopilot run my team for ${n} season${n === 1 ? "" : "s"}: ${sm.titles} title${sm.titles === 1 ? "" : "s"}, ${sm.playoffApps} playoff appearance${sm.playoffApps === 1 ? "" : "s"}, ${pctS(sm.winPct)} wins`;
+    const lines = [
+      `${sm.from}–${sm.to}, run by Courtside's Autopilot (strategy, trades, contracts, draft and minutes all automatic).`,
+      "",
+      "| Season | Record | Playoffs | Strategy |", "|---|---|---|---|",
+      ...sm.seasons.map((x) => `| ${x.season} | ${x.won}-${x.lost}${x.tied ? `-${x.tied}` : ""} | ${x.playoffs} | ${x.strategy || ""} |`),
+      "",
+      `- Championships: **${sm.titles}**, playoff appearances: ${sm.playoffApps} of ${n}, regular-season win%: ${pctS(sm.winPct)}`,
+      `- Trades: ${sm.trades.count}; signed ${sm.moves.signings}, re-signed ${sm.moves.resignings}, released ${sm.moves.releases}`,
+      sm.payrollPerWin != null ? `- Salary per win: ${F.fmtMoney(sm.payrollPerWin)} (league average ${F.fmtMoney(sm.leaguePayrollPerWin)})` : "",
+      sm.drafts.length ? `- Draft picks: ${sm.drafts.length}` : "",
+    ].filter((l) => l !== "");
+    return [title, lines.join("\n")];
+  }
+
   function summaryHtml(sm) {
     if (!sm) return "";
     const pct = (x) => (x == null ? "–" : (x * 100).toFixed(1) + "%");
@@ -912,6 +963,7 @@
       ${sm.seasons.length ? `${det("summary:seasons")}<summary>Season by season</summary><table class="sum"><tr><th>Season</th><th>Record</th><th>Playoffs</th><th>Strategy</th></tr>${sm.seasons.map((x) =>
         `<tr><td>${x.season}</td><td>${x.won}-${x.lost}${x.tied ? `-${x.tied}` : ""}</td><td class="${x.champion ? "good" : ""}">${esc(x.playoffs)}</td><td>${esc(x.strategy || "")}</td></tr>`).join("")}</table></details>` : ""}
       <div class="why">Observed results from BBGM's records. League averages are context only; this isn't a comparison against what would have happened without Autopilot.</div>
+      <div class="actions"><button class="sm" data-h="${on(() => shareToReddit(...summaryPost(sm)))}" title="Opens Reddit's post form with this summary filled in. You review it and press Post yourself.">Share to Reddit</button></div>
     </details>`;
   }
 

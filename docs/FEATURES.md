@@ -396,6 +396,12 @@ Choose a mode: **Suggest** (a list of proposed moves, each with Do it / Skip, pl
 
 ---
 
+## 13b. Share to Reddit (v2.6)
+
+- **Share to Reddit** buttons on a player's Outlook and on the Autopilot run summary. Each opens Reddit's post form (old.reddit.com) in a new tab, pre-filled with a title and a formatted post (prediction table, Scout POT, risks; or the season-by-season Autopilot table) plus a one-line footer linking to Courtside.
+- The subreddit defaults to r/BasketballGM and can be changed in the popup → Settings.
+- Nothing is posted automatically: you review the post on Reddit and press Post yourself. No Reddit login, password or token is handled by the extension.
+
 ## 13a. Look and name (v2.5)
 
 - Renamed from BBGM Scout to **Courtside**. Internal names, storage keys, the repo and download links are unchanged, so settings, pins, reports and protections carry over.

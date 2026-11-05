@@ -183,7 +183,14 @@
   nav button { border:0; background:none; color:var(--mut); font:inherit; font-size:12px; padding:5px 7px; cursor:pointer; border-bottom:2px solid transparent; white-space:nowrap; border-radius:0; flex:none; }
   nav button.active { color:var(--fg); border-color:var(--acc); }
   nav .n { display:inline-block; min-width:14px; padding:0 4px; margin-left:3px; border-radius:999px; background:var(--acc); color:#fff; font-size:10px; line-height:14px; }
-  .body { padding:10px 12px 12px; overflow-y:auto; }
+  .body { padding:10px 8px 12px 12px; overflow-y:scroll; overflow-x:auto; overscroll-behavior:contain; scrollbar-gutter:stable; }
+  /* Always-visible scrollbar (macOS otherwise hides it until you scroll) */
+  .body::-webkit-scrollbar { width:10px; height:10px; }
+  .body::-webkit-scrollbar-track { background:var(--chip); border-radius:6px; }
+  .body::-webkit-scrollbar-thumb { background:var(--mut); border-radius:6px; border:2px solid var(--chip); min-height:30px; }
+  .body::-webkit-scrollbar-thumb:hover { background:var(--fg); }
+  .body::-webkit-scrollbar-corner { background:transparent; }
+  @supports not selector(::-webkit-scrollbar) { .body { scrollbar-width:thin; scrollbar-color:var(--mut) var(--chip); } }
   .collapsed nav, .collapsed .body { display:none; }
   .title { display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
   .name { font-weight:600; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }

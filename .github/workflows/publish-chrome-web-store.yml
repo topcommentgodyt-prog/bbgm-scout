@@ -92,6 +92,10 @@ jobs:
           item="publishers/$PUB/items/$EXTENSION_ID"
           res=$(curl -sS -X POST -H "Authorization: Bearer $TOKEN" -T courtside-store.zip "$API/upload/v2/$item:upload")
           echo "Upload response: $(echo "$res" | jq -c 'del(.name)')"
+          # A version already waiting for review can't be replaced: say so plainly instead of a generic failure.
+          if echo "$res" | jq -e '.error.details[]? | select(.reason == "NOT_UPDATEABLE")' >/dev/null; then
+            echo "::error::Another version of Courtside is still in Chrome Web Store review, so version $VERSION can't be uploaded yet. Re-run this workflow (Actions → Publish to Chrome Web Store → Run workflow) after the review finishes."; exit 1
+          fi
           # v2 UploadState: SUCCEEDED | IN_PROGRESS | FAILED | NOT_FOUND. While IN_PROGRESS, poll fetchStatus
           # (its lastAsyncUploadState field) every 15 s for up to 5 minutes.
           state=$(echo "$res" | jq -r '.uploadState // empty')

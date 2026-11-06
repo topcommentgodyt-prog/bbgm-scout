@@ -463,6 +463,18 @@ Choose a mode: **Suggest** (a list of proposed moves, each with Do it / Skip, pl
 - The coaching effect uses the current budget level; BBGM uses a 3-season average.
 - Trade searches take a few seconds per asset, because every AI team builds an offer.
 
+## 13c. Updates (v3.5)
+
+- **Chrome Web Store:** `.github/workflows/publish-chrome-web-store.yml` runs on every published GitHub release (or by hand, with an upload-only option).
+  - Steps: zip `manifest.json`, `src`, `popup`, `icons` and `LICENSE` with the manifest at the root, check the manifest version against the tag, get an OAuth access token from the refresh token, upload, then publish.
+  - Upload: `POST https://chromewebstore.googleapis.com/upload/v2/publishers/{publisherId}/items/{itemId}:upload`. While `uploadState` is `IN_PROGRESS`, it polls `:fetchStatus` (`lastAsyncUploadState`) and needs `SUCCEEDED`.
+  - Publish: `POST …/v2/publishers/{publisherId}/items/{itemId}:publish` with `publishType: DEFAULT_PUBLISH`, which goes live after review.
+  - Secrets: `CWS_CLIENT_ID`, `CWS_CLIENT_SECRET`, `CWS_REFRESH_TOKEN`, `CWS_PUBLISHER_ID`. Without them the job skips with a notice.
+- **Unpacked installs:**
+  - `background.js` checks every 10 minutes (`alarms`) and at startup whether the on-disk `manifest.json` is a newer version than the running one, and if so calls `runtime.reload()`. This only happens when `management.getSelf().installType === "development"`.
+  - `scripts/auto-update.ps1` (installed as a 30-minute scheduled task by `scripts/install-auto-update.ps1`) fast-forwards a `git clone` to `origin/main`, skipping on local changes or a diverged history. It logs to `%LOCALAPPDATA%\Courtside\auto-update.log`.
+  - An open tab's old content script that loses its extension shows "Courtside was updated" with a Refresh button.
+
 ## 14a. v3.4: Moneyball manager style
 
 - **Setting:** `managerStyle` (`standard` | `moneyball`), on the Manager dashboard and in the popup. Changing it rebuilds the league model.

@@ -10,6 +10,8 @@ The owner wants GitHub updated every time they ask for a change. After any chang
 
 GitHub Releases can't be created from Claude's cloud sessions. The owner publishes those manually; offer release notes when versions change.
 
+Publishing a GitHub release also submits that version to the Chrome Web Store (`.github/workflows/publish-chrome-web-store.yml`, item `fhhhenpmnjmaancmmgbajghdiflckapj`, API v2). The store rejects an upload whose version isn't higher than the published one, so never re-release an old version number; check the workflow's run after each release.
+
 ## Project facts
 - Chrome manifest uses `background.service_worker` only (`background.scripts` triggers a Chrome warning). Firefox uses `manifest.firefox.json` with `background.scripts`.
 - Page-world bridge: `src/bridge-main.js` allow-lists every BBGM `toWorker` action. Add new actions there.

@@ -98,3 +98,29 @@ async function syncOffBadge() {
 }
 syncOffBadge();
 api.storage.onChanged.addListener((changes) => { if (changes.settings) syncOffBadge(); });
+
+// Auto-update for unpacked installs (v3.5). Chrome only updates Web Store installs by itself. When Courtside is
+// loaded with "Load unpacked" from a folder that something keeps up to date (the repo's `git pull` task, see
+// scripts/auto-update.ps1), this notices newer files on disk and reloads the extension, which is the same as
+// pressing reload on chrome://extensions. Store installs are left to the store.
+const AUTO_UPDATE_ALARM = "courtside-auto-update";
+const newer = (a, b) => {
+  const x = String(a).split(".").map(Number), y = String(b).split(".").map(Number);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); }
+  return false;
+};
+async function checkForLocalUpdate() {
+  try {
+    const self = await api.management.getSelf();
+    if (self.installType !== "development") return; // Web Store installs update through the store
+    const res = await fetch(api.runtime.getURL("manifest.json"), { cache: "no-store" });
+    const onDisk = (await res.json()).version;
+    const running = api.runtime.getManifest().version;
+    if (!newer(onDisk, running)) return;
+    await api.storage.local.set({ updatedFrom: { from: running, to: onDisk, at: Date.now() } });
+    api.runtime.reload();
+  } catch (e) { /* files mid-update or unreadable: try again next time */ }
+}
+api.alarms.create(AUTO_UPDATE_ALARM, { periodInMinutes: 10 });
+api.alarms.onAlarm.addListener((a) => { if (a.name === AUTO_UPDATE_ALARM) checkForLocalUpdate(); });
+api.runtime.onStartup.addListener(checkForLocalUpdate);

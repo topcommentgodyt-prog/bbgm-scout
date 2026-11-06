@@ -1,0 +1,119 @@
+# Publishes Courtside to the Chrome Web Store whenever a GitHub release is published, so every Chrome user with the
+# store version updates automatically after Google's review. Uses the Chrome Web Store API v2
+# (https://developer.chrome.com/docs/webstore/using-api); v1.1 was retired on 15 October 2026.
+#
+# One-time setup (repo → Settings → Secrets and variables → Actions → New repository secret):
+#   CWS_CLIENT_ID       OAuth client ID (Google Cloud project with the "Chrome Web Store API" enabled)
+#   CWS_CLIENT_SECRET   its client secret
+#   CWS_REFRESH_TOKEN   refresh token for the Google account that owns the item (scope .../auth/chromewebstore)
+#   CWS_PUBLISHER_ID    Developer Dashboard → Publisher → Settings
+# Without the secrets the job explains what's missing and stops without failing the release.
+name: Publish to Chrome Web Store
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Submit for review after uploading (false = upload only)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chrome-web-store
+  cancel-in-progress: false
+
+env:
+  EXTENSION_ID: fhhhenpmnjmaancmmgbajghdiflckapj
+  API: https://chromewebstore.googleapis.com
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check secrets
+        id: secrets
+        env:
+          CID: ${{ secrets.CWS_CLIENT_ID }}
+          CSEC: ${{ secrets.CWS_CLIENT_SECRET }}
+          RTOK: ${{ secrets.CWS_REFRESH_TOKEN }}
+          PUB: ${{ secrets.CWS_PUBLISHER_ID }}
+        run: |
+          missing=""
+          [ -n "$CID" ]  || missing="$missing CWS_CLIENT_ID"
+          [ -n "$CSEC" ] || missing="$missing CWS_CLIENT_SECRET"
+          [ -n "$RTOK" ] || missing="$missing CWS_REFRESH_TOKEN"
+          [ -n "$PUB" ]  || missing="$missing CWS_PUBLISHER_ID"
+          if [ -n "$missing" ]; then
+            echo "::notice::Chrome Web Store publishing skipped: missing secrets:$missing (see the comment at the top of this workflow)."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build the store package (manifest.json at the zip root)
+        if: steps.secrets.outputs.ready == 'true'
+        run: |
+          version=$(jq -r .version manifest.json)
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "${{ github.event_name }}" = "release" ] && [ "$version" != "$tag" ]; then
+            echo "::error::manifest.json version $version doesn't match the release tag ${GITHUB_REF_NAME}"; exit 1
+          fi
+          zip -qrX courtside-store.zip manifest.json src popup icons LICENSE
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "Built courtside-store.zip for version $version ($(du -k courtside-store.zip | cut -f1) KB)"
+
+      - name: Get an access token
+        if: steps.secrets.outputs.ready == 'true'
+        env:
+          CID: ${{ secrets.CWS_CLIENT_ID }}
+          CSEC: ${{ secrets.CWS_CLIENT_SECRET }}
+          RTOK: ${{ secrets.CWS_REFRESH_TOKEN }}
+        run: |
+          res=$(curl -sS https://oauth2.googleapis.com/token \
+            --data-urlencode "client_id=$CID" --data-urlencode "client_secret=$CSEC" \
+            --data-urlencode "refresh_token=$RTOK" --data-urlencode "grant_type=refresh_token")
+          token=$(echo "$res" | jq -r '.access_token // empty')
+          if [ -z "$token" ]; then echo "::error::Couldn't get an access token: $(echo "$res" | jq -c '{error, error_description}')"; exit 1; fi
+          echo "::add-mask::$token"
+          echo "TOKEN=$token" >> "$GITHUB_ENV"
+
+      - name: Upload the new version
+        if: steps.secrets.outputs.ready == 'true'
+        env:
+          PUB: ${{ secrets.CWS_PUBLISHER_ID }}
+        run: |
+          item="publishers/$PUB/items/$EXTENSION_ID"
+          res=$(curl -sS -X POST -H "Authorization: Bearer $TOKEN" -T courtside-store.zip "$API/upload/v2/$item:upload")
+          echo "Upload response: $(echo "$res" | jq -c 'del(.name)')"
+          # v2 UploadState: SUCCEEDED | IN_PROGRESS | FAILED | NOT_FOUND. While IN_PROGRESS, poll fetchStatus
+          # (its lastAsyncUploadState field) every 15 s for up to 5 minutes.
+          state=$(echo "$res" | jq -r '.uploadState // empty')
+          for i in $(seq 1 20); do
+            [ "$state" = "IN_PROGRESS" ] || break
+            sleep 15
+            res=$(curl -sS -H "Authorization: Bearer $TOKEN" "$API/v2/$item:fetchStatus")
+            state=$(echo "$res" | jq -r '.lastAsyncUploadState // empty')
+            echo "Still processing… ($state)"
+          done
+          if [ "$state" != "SUCCEEDED" ]; then
+            echo "::error::Upload didn't succeed (state: ${state:-unknown}). A common cause: version $VERSION isn't higher than the one already in the store. Response: $(echo "$res" | jq -c .)"; exit 1
+          fi
+          echo "Uploaded version $VERSION."
+
+      - name: Submit for review
+        if: steps.secrets.outputs.ready == 'true' && (github.event_name == 'release' || inputs.publish)
+        env:
+          PUB: ${{ secrets.CWS_PUBLISHER_ID }}
+        run: |
+          res=$(curl -sS -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+            -d '{"publishType":"DEFAULT_PUBLISH"}' "$API/v2/publishers/$PUB/items/$EXTENSION_ID:publish")
+          echo "Publish response: $(echo "$res" | jq -c 'del(.name)')"
+          if echo "$res" | jq -e '.error' >/dev/null; then echo "::error::Publishing failed: $(echo "$res" | jq -c .error)"; exit 1; fi
+          echo "::notice::Courtside $VERSION submitted to the Chrome Web Store. It goes live (and Chrome updates everyone) once Google's review approves it."

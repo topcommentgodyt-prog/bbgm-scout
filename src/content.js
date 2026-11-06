@@ -2608,9 +2608,28 @@
   // ======================================================================
   const INSTANCE = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const connected = () => { try { return !!(ext && ext.runtime && ext.runtime.id); } catch (e) { return false; } };
-  function shutdown() {
+  function shutdown(reason) {
     if (shutDown) return;
+    const wasOn = settings.enabled !== false;
     shutDown = true;
+    // Cut off by an update or reload (not replaced by a newer copy on this page): say so, with a one-click refresh.
+    if (reason === "disconnected" && wasOn && document.body) {
+      const note = document.createElement("div");
+      note.id = "courtside-updated";
+      note.style.cssText = "position:fixed;right:16px;bottom:16px;z-index:2147483000;display:flex;gap:10px;align-items:center;padding:10px 12px;border-radius:12px;background:#e0631d;color:#fff;font:600 13px/1.3 -apple-system,Segoe UI,Roboto,sans-serif;box-shadow:0 10px 30px -8px rgba(0,0,0,.45)";
+      note.innerHTML = `<span>Courtside was updated. Refresh to load the new version.</span>`;
+      const btn = document.createElement("button");
+      btn.textContent = "Refresh";
+      btn.style.cssText = "font:inherit;padding:4px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.6);background:rgba(255,255,255,.18);color:#fff;cursor:pointer";
+      btn.onclick = () => location.reload();
+      const x = document.createElement("button");
+      x.textContent = "×"; x.title = "Dismiss";
+      x.style.cssText = "font:inherit;padding:0 6px;border:0;background:none;color:#fff;cursor:pointer;font-size:16px";
+      x.onclick = () => note.remove();
+      note.append(btn, x);
+      document.getElementById("courtside-updated")?.remove();
+      document.body.appendChild(note);
+    }
     st.ap.stopReq = true;
     timers.forEach(clearInterval);
     if (observer) observer.disconnect();
@@ -2623,10 +2642,11 @@
   window.addEventListener("message", (e) => {
     if (e.source === window && e.data && e.data.__courtside === "takeover" && e.data.id !== INSTANCE) shutdown();
   });
-  timers.push(setInterval(() => { if (!connected()) shutdown(); }, 2000));
+  timers.push(setInterval(() => { if (!connected()) shutdown("disconnected"); }, 2000));
   // Tell any older copy on this page to stop, and clear what it drew, before starting.
   window.postMessage({ __courtside: "takeover", id: INSTANCE }, location.origin);
   document.getElementById("bbgm-scout-host")?.remove();
+  document.getElementById("courtside-updated")?.remove();
   document.querySelectorAll(".bbgm-scout-badge").forEach((b) => b.remove());
 
   init();

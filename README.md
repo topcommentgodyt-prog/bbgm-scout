@@ -159,6 +159,18 @@ These always match the latest version on `main`.
 2. Go to `chrome://extensions` and turn on **Developer mode**.
 3. Click **Load unpacked** and pick the unzipped `bbgm-scout` folder.
 
+**Chrome Web Store.** Courtside is on the [Chrome Web Store](https://chromewebstore.google.com/detail/courtside/fhhhenpmnjmaancmmgbajghdiflckapj). Store installs update by themselves. Since v3.5, every GitHub release is uploaded and submitted to the store automatically by `.github/workflows/publish-chrome-web-store.yml` (Chrome Web Store API v2). Each version goes live after Google's review.
+
+**Keep an unpacked install updated (Windows, v3.5).** Chrome only auto-updates Web Store installs. To update an unpacked install automatically:
+1. Load Courtside from a `git clone` of this repo.
+2. Once, in that folder, run:
+
+   ```
+   powershell -ExecutionPolicy Bypass -File scripts\install-auto-update.ps1
+   ```
+
+That installs a scheduled task that fast-forwards the folder to GitHub's `main` every 30 minutes and at sign-in. It never touches local changes, and it logs to `%LOCALAPPDATA%\Courtside\auto-update.log`. Courtside's background script checks every 10 minutes for a newer version on disk and reloads itself. Open BBGM tabs then show "Courtside was updated" with a Refresh button. To remove the task, run the same command with `-Remove`.
+
 **Firefox:** download the `-firefox` ZIP from Releases (or, in the source folder, rename `manifest.firefox.json` to `manifest.json`). Then go to `about:debugging` → This Firefox → **Load Temporary Add-on** and pick `manifest.json`. For a permanent install, sign the extension through addons.mozilla.org as an unlisted add-on.
 
 **Safari (Mac):** run `xcrun safari-web-extension-converter bbgm-scout/` and build the generated Xcode project.

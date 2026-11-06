@@ -1,5 +1,17 @@
 # Changelog
 
+## 3.5.0
+
+- **Releases publish to the Chrome Web Store automatically.** A new GitHub Actions workflow (`.github/workflows/publish-chrome-web-store.yml`) runs on every published release.
+  - It builds a store package (manifest at the zip root), checks the version matches the release tag, uploads it with the Chrome Web Store API v2, and submits it for review.
+  - Store installs then update by themselves once Google approves the version.
+  - It needs four repository secrets (`CWS_CLIENT_ID`, `CWS_CLIENT_SECRET`, `CWS_REFRESH_TOKEN`, `CWS_PUBLISHER_ID`). Without them it skips with a notice.
+  - It can also be run by hand from the Actions tab, with an upload-only option.
+- **Automatic updates for unpacked installs.** Chrome only updates Web Store installs by itself, so:
+  - **Self-reload:** Courtside checks every 10 minutes (and at browser start) whether the files it was loaded from are a newer version, and reloads itself if so. This only applies to "Load unpacked" installs; store installs update through the store. It needs Chrome's `alarms` permission, which is new.
+  - **Windows updater:** `scripts\install-auto-update.ps1` installs a scheduled task that brings a `git clone` of this repo up to date with GitHub every 30 minutes and at sign-in. It only fast-forwards, never touches local changes, and logs to `%LOCALAPPDATA%\Courtside\auto-update.log`. `-Remove` uninstalls it.
+  - **Refresh note:** open BBGM tabs show "Courtside was updated. Refresh to load the new version", with a Refresh button, instead of the dock just disappearing.
+
 ## 3.4.0
 
 - **Moneyball manager style (optional).** A new **Style** picker on the Manager dashboard (and in the popup) chooses between **Standard** (unchanged) and **Moneyball: value per dollar**.

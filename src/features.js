@@ -292,6 +292,39 @@
       .sort((a, b) => b.surplus - a.surplus)
       .slice(0, 25);
   }
+  /**
+   * Free agency checker: where the roster stands in the free-agent market, and whether it's worth staying in
+   * free agency longer (asking prices fall over BBGM's 30 free-agency days while AI teams keep signing).
+   *  - rosterSize vs the league's minimum and maximum, open spots, cap space and whether only minimum deals fit
+   *  - the best signable free agents by value plus fit (weak areas, synergy)
+   *  - issues: below the roster minimum, nobody signable, over the maximum before games start
+   *  - keepShopping: during free agency, stay day by day while there are open spots and positive-value free agents
+   *    (even ones you can't afford yet: their price drops), instead of jumping straight to the preseason
+   */
+  function freeAgencyCheck(L, settings = L.settings, poll = null) {
+    const c = L.capInfo, ph = L.snap.phase;
+    const space = c.type === "none" ? Infinity : c.cap - c.payroll;
+    const target = ph === PH.FREE_AGENCY || ph === PH.PRESEASON ? c.maxRoster - 1 : c.minRoster;
+    const noFA = challenge(L, "challengeNoFreeAgents");
+    const rosterPids = L.roster(L.snap.userTid).map((p) => p.pid);
+    const pool = freeAgents(L).filter((f) => !noFA || f.ask <= c.minContract).map((f) => {
+      let fit = 0;
+      try { fit = IN() ? IN().fitGain(L, rosterPids, [...rosterPids, f.pid]).fit : 0; } catch (e) { /* model incomplete */ }
+      return { ...f, fit, score: f.surplus + 20 * fit };
+    }).sort((a, b) => b.score - a.score);
+    const signable = pool.filter((f) => f.canSign);
+    const worthIt = pool.filter((f) => f.surplus > 0 || (c.rosterSize < c.minRoster && f.canSign));
+    const issues = [];
+    if (c.rosterSize < c.minRoster) issues.push(`Roster ${c.rosterSize}/${c.minRoster}: ${c.minRoster - c.rosterSize} below BBGM's minimum${signable.length ? "" : ", and no free agent is signable right now"}`);
+    if (c.rosterSize > c.maxRoster) issues.push(`Roster ${c.rosterSize}/${c.maxRoster}: ${c.rosterSize - c.maxRoster} over the maximum; cuts happen before games`);
+    if (signingAllowed(ph) && c.rosterSize < target && !signable.length) issues.push("Open roster spots but nobody signable (cap, mood or roster rules)");
+    const daysLeft = poll && poll.daysLeft != null ? poll.daysLeft : null;
+    const keepShopping = ph === PH.FREE_AGENCY && (daysLeft == null || daysLeft > 0) && c.rosterSize < target && worthIt.length > 0;
+    return {
+      phase: ph, open: signingAllowed(ph), rosterSize: c.rosterSize, min: c.minRoster, max: c.maxRoster, target, openSpots: Math.max(0, target - c.rosterSize),
+      capSpace: space, minDealsOnly: c.type !== "none" && space < c.minContract * 2, daysLeft, best: pool.slice(0, 5), signable: signable.length, issues, keepShopping,
+    };
+  }
   async function sign(L, fa, why, ex) {
     const r = await B.call("main", "acceptContractNegotiation", { pid: fa.pid, amount: fa.ask, exp: fa.exp });
     if (typeof r === "string") throw new Error(r.replace(/<[^>]+>/g, ""));
@@ -805,7 +838,13 @@
   }
 
   // ======================= Autopilot =======================
-  function nextPlayAction(poll, settings) {
+  function nextPlayAction(poll, settings, fa = null) {
+    // Free agency checker: keep shopping day by day (or week by week) while there are open spots and players worth
+    // signing; prices fall as the 30 days go by. Otherwise finish free agency in one step.
+    if (poll.phase === PH.FREE_AGENCY && fa && fa.keepShopping) {
+      const wk = settings.apStep === "week";
+      return [wk ? "week" : "day", `Free agency: ${fa.openSpots} open spot${fa.openSpots === 1 ? "" : "s"}, waiting for prices to drop (${fa.daysLeft != null ? `${fa.daysLeft} days left, ` : ""}one ${wk ? "week" : "day"})`];
+    }
     switch (poll.phase) {
       case PH.PRESEASON: return ["untilRegularSeason", "Start the regular season"];
       case PH.REGULAR_SEASON:
@@ -831,7 +870,7 @@
 
   root.BBGMScoutFeatures = {
     gemVerdict, gemList, tradeIdeas, proposeTrade, evaluateCurrentTrade, targets, buildOfferFor, freeAgents, sign,
-    draftBoard, tierCounts, tradeDownIdeas, draftStep, managerPlan, runActions, tradeDue, isNecessary, impactText, minutesPlan, nextPlayAction, stopHere, tradesAllowed, PT, fmtMoney,
+    draftBoard, tierCounts, tradeDownIdeas, draftStep, managerPlan, freeAgencyCheck, runActions, tradeDue, isNecessary, impactText, minutesPlan, nextPlayAction, stopHere, tradesAllowed, PT, fmtMoney,
     explainTrade, payrollPlan, fitsPlan, setLeague, loadMem, saveMem, memoryBlock, clockOf, noteClock, objectiveBlocks,
   };
 })(globalThis);

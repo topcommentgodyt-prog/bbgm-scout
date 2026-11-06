@@ -96,6 +96,29 @@ test("re-signing: a player whose contract demands weren't read is still decided 
   for (const n of snap.negotiations) assert.ok(decided.has(n), `negotiation ${n} decided`);
 });
 
+test("free agency checker (v3.1): Autopilot shops day by day only while it's worth it", async () => {
+  const { bridge } = createLeague({ seed: 2 });
+  const ctx = load(bridge);
+  const F = ctx.BBGMScoutFeatures;
+  // The play step during free agency follows the checker.
+  assert.strictEqual(F.nextPlayAction({ phase: 8, daysLeft: 20 }, { apStep: "day" }, { keepShopping: true, openSpots: 2, daysLeft: 20 })[0], "day");
+  assert.strictEqual(F.nextPlayAction({ phase: 8, daysLeft: 20 }, { apStep: "week" }, { keepShopping: true, openSpots: 2, daysLeft: 20 })[0], "week");
+  assert.strictEqual(F.nextPlayAction({ phase: 8, daysLeft: 20 }, { apStep: "day" }, { keepShopping: false })[0], "untilPreseason");
+  assert.strictEqual(F.nextPlayAction({ phase: 8 }, { apStep: "day" })[0], "untilPreseason");
+  // On a real (mock) league in free agency: consistent numbers, and it only keeps shopping with open spots.
+  await advanceTo(bridge, 8);
+  const settings = await ctx.BBGMScoutStorage.getSettings();
+  const L = await ctx.BBGMScoutLeague.build(await bridge.snapshot(), settings, null, {});
+  const poll = await bridge.poll();
+  const fa = F.freeAgencyCheck(L, settings, poll);
+  assert.strictEqual(fa.rosterSize, L.capInfo.rosterSize);
+  assert.strictEqual(fa.openSpots, Math.max(0, fa.target - fa.rosterSize));
+  if (fa.keepShopping) assert.ok(fa.rosterSize < fa.target, "keeps shopping only with open spots");
+  if (fa.rosterSize >= fa.target) assert.ok(!fa.keepShopping);
+  if (fa.rosterSize < fa.min) assert.ok(fa.issues.some((t) => /below/.test(t)));
+  assert.ok(fa.best.length <= 5);
+});
+
 test("autopilot phases: fantasy and expansion drafts have a play action", () => {
   const { bridge } = createLeague({ seed: 1 });
   const ctx = load(bridge);

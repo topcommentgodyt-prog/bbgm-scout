@@ -76,6 +76,12 @@ Use BBGM's Play menu yourself for these, with the manager in automatic mode:
 - [ ] (v3.0) Owner "Annual performance evaluation" messages are marked read after a season (no "Read new message" in BBGM's Play menu).
 - [ ] (v3.0, in a copy) With "Auto-pick a new team when fired" on: Tools → God Mode off, then `gameOver` true (or get fired). Autopilot takes over one of the teams on BBGM's New Team page and keeps going.
 
+## F1. Realism automation and free agency (v3.1)
+
+- [ ] Realism tab → Automation → "Apply automatically once a season". Play (or Autopilot) past the playoffs: at the draft lottery the log shows "Realism (automatic, YEAR): …" once, God Mode is on, and **Undo last change** restores the values.
+- [ ] Free agency with open roster spots: the Manager tab's **Free agency check** card shows roster, cap, days left and best fits; Autopilot's status says "Free agency: N open spots…" and steps day by day until the spots are filled or the days run out.
+- [ ] The header shows ▲ Open / ▼ Close fully in every state (Autopilot running, collapsed, compact).
+
 ## F2. Office and Insights (v3.0)
 
 - [ ] Office: job security shows wins / playoffs / money and a projection; "Coming up" shows the trade deadline countdown during the season.

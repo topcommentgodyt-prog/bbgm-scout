@@ -91,7 +91,7 @@
   let hid = 0;
   const on = (fn) => { const id = `h${++hid}`; handlers.set(id, fn); return id; };
 
-  const THEME_ICON = { auto: "◐ Auto", light: "☀ Light", dark: "☾ Dark" };
+  const THEME_ICON = { auto: "◐", light: "☀", dark: "☾" }; // icon only; the button's title names the theme
   const THEME_LABEL = { auto: "Auto (follows BBGM)", light: "Light", dark: "Dark" };
   // Small line icons for the tabs (inline SVG, inherit the text color).
   const ico = (d) => `<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
@@ -369,7 +369,16 @@
   header::after { content:""; position:absolute; inset:auto 0 0 0; height:3px; background:repeating-linear-gradient(90deg, rgba(0,0,0,.18) 0 6px, transparent 6px 12px); opacity:.35; }
   header b { font-size:13.5px; letter-spacing:.9px; text-transform:uppercase; font-weight:800; text-shadow:0 1px 0 rgba(0,0,0,.18); }
   header .ball { width:18px; height:18px; flex:none; filter:drop-shadow(0 1px 1px rgba(0,0,0,.25)); }
-  header .chip { background:rgba(255,255,255,.22); color:#fff; }
+  header .chip { background:rgba(255,255,255,.22); color:#fff; flex:none; white-space:nowrap; }
+  /* The header row never overflows: buttons and chips keep their size, the sync label gives way first,
+     and Open / Close is always the last thing visible. */
+  header button, header .grip, header b { flex:none; white-space:nowrap; }
+  header .caret { margin-left:auto; }
+  header .sync { flex:1 1 auto; min-width:0; justify-content:flex-end; overflow:hidden; }
+  header .sync .stxt { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .wrap.compact header .stxt, .wrap.ap header .stxt { display:none; } /* tight header: the dot (with its tooltip) is enough */
+  .wrap.compact header .apchip { padding:1px 6px; }
+  .wrap.compact header { gap:6px; padding:9px 10px; } .wrap.compact header .sync { display:none; }
   header .grip { display:flex; align-items:center; gap:8px; cursor:grab; touch-action:none; padding:2px 4px 2px 0; border-radius:8px; }
   header .grip:hover { background:rgba(255,255,255,.1); }
   .wrap.moving { transition:none; opacity:.92; box-shadow:0 24px 50px -10px rgba(0,0,0,.45); } .wrap.moving header .grip { cursor:grabbing; }
@@ -526,7 +535,7 @@
   .lineup { display:grid; grid-template-columns:1fr 1fr; gap:6px; } .lineup > div { background:var(--chip); border-radius:8px; padding:6px 8px; font-size:11.5px; }
   .ok { color:var(--good); font-weight:700; } .no { color:var(--bad); font-weight:700; }
   /* Compact mode: a mini panel with three metrics */
-  .wrap.compact { width:250px; } .wrap.compact .navwrap { display:none; }
+  .wrap.compact { width:280px; } .wrap.compact .navwrap { display:none; }
   .mini { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; text-align:center; }
   .mini div { background:var(--board); color:#cfd8e6; border-radius:9px; padding:6px 2px; } .mini small { display:block; font-size:9px; text-transform:uppercase; letter-spacing:1px; color:#8fa0b8; font-weight:700; }
   .mini strong { display:block; font-size:16px; font-weight:800; color:var(--boardfg); font-variant-numeric:tabular-nums; }
@@ -576,8 +585,8 @@
     st.lastTab = st.tab;
     const focusKey = shadow.activeElement && shadow.activeElement.dataset ? shadow.activeElement.dataset.set : null;
     shadow.innerHTML = `<style>${CSS}</style>
-      <div class="wrap ${settings.panelSide === "left" ? "left" : "right"}${isDark() ? " dark" : ""}${settings.panelCollapsed ? " collapsed" : ""}${compact ? " compact" : ""}">
-        <header data-h="${hdr}" title="Click to ${settings.panelCollapsed ? "open" : "close"}"><span class="grip" title="Drag to move Courtside (double-click to reset)"><svg class="ball" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10.5" fill="#fff" fill-opacity=".95"/><circle cx="12" cy="12" r="10.5" fill="none" stroke="#7a2d06" stroke-width="1.3"/><path d="M1.5 12h21M12 1.5v21M4.6 4.6c3.6 3.2 3.6 11.6 0 14.8M19.4 4.6c-3.6 3.2-3.6 11.6 0 14.8" fill="none" stroke="#7a2d06" stroke-width="1.3"/></svg><b>Courtside</b></span><button class="sm theme" data-h="${themeBtn}" title="Theme: ${THEME_LABEL[settings.theme] || "Auto"} (click to change)" aria-label="Switch light or dark mode">${THEME_ICON[settings.theme] || THEME_ICON.auto}</button>${st.ap.running ? `<span class="chip">Autopilot</span>` : ""}<span class="sync" title="${esc(sync.detail)}"><span class="dot ${sync.mode}"></span>${esc(sync.text)}</span><button class="sm caret" data-h="${hdr}" title="${settings.panelCollapsed ? "Open" : "Close"} Courtside" aria-label="${settings.panelCollapsed ? "Open" : "Close"} Courtside" aria-expanded="${!settings.panelCollapsed}">${settings.panelCollapsed ? "▲ Open" : "▼ Close"}</button></header>
+      <div class="wrap ${settings.panelSide === "left" ? "left" : "right"}${isDark() ? " dark" : ""}${settings.panelCollapsed ? " collapsed" : ""}${compact ? " compact" : ""}${st.ap.running ? " ap" : ""}">
+        <header data-h="${hdr}" title="Click to ${settings.panelCollapsed ? "open" : "close"}"><span class="grip" title="Drag to move Courtside (double-click to reset)"><svg class="ball" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10.5" fill="#fff" fill-opacity=".95"/><circle cx="12" cy="12" r="10.5" fill="none" stroke="#7a2d06" stroke-width="1.3"/><path d="M1.5 12h21M12 1.5v21M4.6 4.6c3.6 3.2 3.6 11.6 0 14.8M19.4 4.6c-3.6 3.2-3.6 11.6 0 14.8" fill="none" stroke="#7a2d06" stroke-width="1.3"/></svg><b>Courtside</b></span><button class="sm theme" data-h="${themeBtn}" title="Theme: ${THEME_LABEL[settings.theme] || "Auto"} (click to change)" aria-label="Switch light or dark mode">${THEME_ICON[settings.theme] || THEME_ICON.auto}</button>${st.ap.running ? `<span class="chip apchip" title="Autopilot is running">${compact ? "▶ AP" : "Autopilot"}</span>` : ""}<span class="sync" title="${esc(sync.text)}: ${esc(sync.detail)}"><span class="dot ${sync.mode}"></span><span class="stxt">${esc(sync.text)}</span></span><button class="sm caret" data-h="${hdr}" title="${settings.panelCollapsed ? "Open" : "Close"} Courtside" aria-label="${settings.panelCollapsed ? "Open" : "Close"} Courtside" aria-expanded="${!settings.panelCollapsed}">${settings.panelCollapsed ? "▲ Open" : compact ? "▼" : "▼ Close"}</button></header>
         ${nav}
         <div class="body">${st.flash ? `<div class="banner acc">${esc(st.flash)}</div>` : ""}${body}</div>
       </div>`;
@@ -1167,6 +1176,7 @@
     </div></details></div>`;
 
     html += liveHtml();
+    html += faCheckHtml();
 
     if (settings.features.manager || settings.features.autopilot) {
       const refresh = on(() => { st.pending = null; st.queueSel = new Set(); invalidate(); render(); refreshPending(); });
@@ -1223,6 +1233,26 @@
     strategy: { label: "Strategy", kinds: ["strategy"] },
     error: { label: "Problems", kinds: ["error"] },
   };
+
+  /** Free agency checker (Manager tab): roster vs limits, cap room, best fits, and whether Autopilot keeps shopping. */
+  function faCheckHtml() {
+    if (!st.L) return "";
+    const L = st.L, ph = L.snap.phase;
+    let fa;
+    try { fa = F.freeAgencyCheck(L, settings, st.poll); } catch (e) { return ""; }
+    const relevant = ph === PH_.RESIGN_PLAYERS || ph === PH_.FREE_AGENCY || ph === PH_.PRESEASON || fa.issues.length;
+    if (!relevant) return "";
+    const space = !Number.isFinite(fa.capSpace) ? "no cap" : fa.capSpace >= 0 ? `${F.fmtMoney(fa.capSpace)} under the cap` : `${F.fmtMoney(-fa.capSpace)} over the cap`;
+    return `<div class="card"><div class="hd"><b>Free agency check</b><span class="chip ${fa.issues.length ? "over" : "gem"}">${fa.issues.length ? `${fa.issues.length} issue${fa.issues.length === 1 ? "" : "s"}` : "OK"}</span></div>
+      <div class="rows">
+        <div><span>Roster</span><span>${fa.rosterSize} (min ${fa.min}, max ${fa.max})${fa.openSpots ? ` · ${fa.openSpots} open` : ""}</span></div>
+        <div><span>Cap</span><span>${esc(space)}${fa.minDealsOnly ? " · minimum deals only" : ""}</span></div>
+        ${fa.daysLeft != null && ph === PH_.FREE_AGENCY ? `<div><span>Free agency</span><span>${fa.daysLeft} days left${fa.keepShopping ? " · Autopilot keeps shopping" : ""}</span></div>` : ""}
+      </div>
+      ${fa.issues.map((t) => `<div class="warn-line">${esc(t)}</div>`).join("")}
+      ${fa.best.length ? `<div class="why">Best fits: ${fa.best.slice(0, 3).map((f) => `${plink(f.pid, f.name)} (OVR ${f.s.ovr}, ${F.fmtMoney(f.ask)}${f.canSign ? "" : `, ${esc(f.why.toLowerCase())}`})`).join(", ")}</div>` : ""}
+      <div class="why">During free agency Autopilot goes day by day while you have open spots and players worth signing (asking prices fall over the 30 days), and the roster is always brought to BBGM's minimum before games.</div></div>`;
+  }
 
   /** Autopilot live: seasons completed, where the run is now, season results and the latest moves. */
   function liveHtml() {
@@ -1285,6 +1315,10 @@
       }
       IN.setClassHistory(hist);
     } catch (e) { /* ignore */ }
+    // Realism automation when you play yourself (any tab); during Autopilot the run loop does it before planning.
+    if (!st.ap.running) {
+      try { if (await autoRealism(L)) { invalidate(); st.pending = null; st.trades.ideas = null; render(); } } catch (e) { /* logged inside */ }
+    }
     // #17: watchlist alerts for pinned players in this league.
     try {
       const pins = (await S.getPins()).filter((p) => !p.league || p.league === st.league || p.lid === lidNow()).map((p) => Number(p.pid)).filter((x) => Number.isFinite(x));
@@ -1711,6 +1745,47 @@
     if (ok) st.realismUndo = { prev, label };
     render();
   }
+  /**
+   * Realism automation (setting "realismAuto" = "auto"): applies the Realism tab's suggested league settings in
+   * the game by itself, once per season, from any tab and during Autopilot.
+   *  - when: once the season is over (draft lottery onward), so a full season of numbers backs it and the changes
+   *    are in place before free agency
+   *  - what: every bounded setting the Realism tab would apply (see realism.js APPLY_BOUNDS), except switching the
+   *    salary cap type, which reshapes every contract in the league and stays a manual click
+   *  - God Mode: BBGM needs it to change league settings, so it's turned on with the first change (the setting says so)
+   *  - every change is logged with the previous values and can be undone from the Realism tab
+   * Returns true if it changed anything.
+   */
+  async function autoRealism(L) {
+    if (!settings.features.realism || settings.realismAuto !== "auto" || !L || !R) return false;
+    if (L.snap.phase < PH_.DRAFT_LOTTERY) return false;
+    const key = lsKey("realismAuto");
+    const done = await S.localGet(key);
+    if (done && done.season >= L.snap.season) return false;
+    let adv;
+    try { adv = R.advise(L, await R.record(lidNow(), L)); } catch (e) { return false; }
+    const patch = R.settingsToApply(adv.suggestions);
+    delete patch.salaryCapType; // structural: manual only
+    const ga = L.snap.ga || {};
+    for (const k of Object.keys(patch)) if (ga[k] === patch[k]) delete patch[k];
+    await S.localSet(key, { season: L.snap.season, at: Date.now(), applied: Object.keys(patch).length });
+    if (!Object.keys(patch).length) return false;
+    const prev = Object.fromEntries(Object.keys(patch).filter((k) => ga[k] != null).map((k) => [k, ga[k]]));
+    const lines = Object.entries(patch).map(([k, v]) => `${SETTING_LABEL[k] || k}: ${fmtSetting(k, ga[k])} → ${fmtSetting(k, v)}`);
+    const titles = adv.suggestions.filter((sg) => (sg.changes || []).some((c) => c.key && c.key in patch)).map((sg) => sg.title);
+    try {
+      await B.call("main", "updateGameAttributes", ga.godMode ? patch : { godMode: true, godModeInPast: true, ...patch });
+    } catch (e) {
+      await S.addLog({ kind: "error", text: `Realism automation couldn't change the league settings: ${e.message}` });
+      return false;
+    }
+    st.realismUndo = { prev, label: `the ${L.snap.season} automatic Realism changes` };
+    await S.addLog({ kind: "league", text: `Realism (automatic, ${L.snap.season}): ${lines.join("; ")}`,
+      ex: { why: `Once a season, Courtside applies the Realism tab's suggestions: ${titles.join("; ")}.${ga.godMode ? "" : " God Mode was turned on (BBGM needs it to change league settings)."} Undo it from the Realism tab.`,
+        benefits: lines, costs: [], strategy: "", basis: "observed" } });
+    st.realism = null; st.log = await S.getLog();
+    return true;
+  }
   async function applyLeagueSettings(patch, logText, keepGod) {
     try {
       await B.call("main", "updateGameAttributes", patch);
@@ -1735,7 +1810,15 @@
     const godMode = !!(st.L && st.L.snap.ga && st.L.snap.ga.godMode);
     const allPatch = R.settingsToApply(suggestions);
     const nAll = Object.keys(allPatch).length;
-    let html = `<div class="banner">Nothing changes until you press <b>Apply</b>. Applying uses BBGM's own league-settings function, the same one the <a class="pl" href="/l/${lidNow()}/settings">League Settings</a> page uses.${godMode ? "" : " Most of these settings are locked unless God Mode is on, so applying will offer to turn it on (BBGM then disables achievements for this league)."}</div>`;
+    const auto = settings.realismAuto === "auto";
+    if (!st.realismAutoDone) S.localGet(lsKey("realismAuto")).then((d) => { st.realismAutoDone = d || { season: null }; if (st.tab === "realism") render(); });
+    const last = st.realismAutoDone && st.realismAutoDone.season != null ? st.realismAutoDone : null;
+    let html = `<div class="card adv" style="margin-top:0"><label>Automation<select data-set="realismAuto">
+        <option value="off"${auto ? "" : " selected"}>Off: I press Apply</option>
+        <option value="auto"${auto ? " selected" : ""}>Apply automatically once a season</option></select></label>
+      <div class="why" style="margin-top:0">${auto
+        ? `Once each season is over (from the draft lottery on), Courtside applies these suggestions in the game by itself, from any tab and during Autopilot, then the manager plans under the new settings. Switching the salary cap type stays manual. Every change is logged and can be undone here.${godMode ? "" : " <b>God Mode will be turned on</b> with the first change (BBGM needs it to change league settings, and then disables achievements for this league)."}${last ? ` Last checked: ${last.season}${last.applied ? `, ${last.applied} setting${last.applied === 1 ? "" : "s"} changed` : ", nothing needed"}.` : ""}`
+        : `Nothing changes until you press <b>Apply</b>. Applying uses BBGM's own league-settings function, the same one the <a class="pl" href="/l/${lidNow()}/settings">League Settings</a> page uses.${godMode ? "" : " Most of these settings are locked unless God Mode is on, so applying will offer to turn it on (BBGM then disables achievements for this league)."}`}</div></div>`;
     if (st.realismUndo) {
       const undo = on(async (el) => { el.disabled = true; await applyLeagueSettings(st.realismUndo.prev, "Reverted the last Realism change", false); st.realismUndo = null; });
       html += `<div class="banner acc">Applied ${esc(st.realismUndo.label)}. <button class="sm" data-h="${undo}">Undo last change</button></div>`;
@@ -1971,7 +2054,10 @@
         st.poll = poll; st.pollKey = keyOf(poll);
         invalidate();
         st.ap.status = "Managing the team…"; render();
-        const L = await getL(true);
+        let L = await getL(true);
+        // Realism automation: apply this season's suggested league settings before planning, then rebuild the
+        // model so every move below is planned under the new settings.
+        if (await autoRealism(L)) { invalidate(); L = await getL(true); }
         lastL = L;
         if (!st.ap.rosterStart) st.ap.rosterStart = L.roster(L.snap.userTid).map((p) => p.pid);
         const ss = (st.ap.strategies[poll.season] = st.ap.strategies[poll.season] || []);
@@ -2011,7 +2097,10 @@
         }
         // League events BBGM's own Auto Play also handles: votes and the expansion draft's protection step.
         if (await handleLeagueEvents(poll, L)) continue;
-        const [action, label] = F.nextPlayAction(poll, settings);
+        // Free agency checker: during free agency, keep shopping day by day while it's worth it.
+        let faCheck = null;
+        if (poll.phase === PH_.FREE_AGENCY) { try { faCheck = F.freeAgencyCheck(L, s2, poll); st.faCheck = faCheck; } catch (e) { /* fall back to finishing free agency */ } }
+        const [action, label] = F.nextPlayAction(poll, settings, faCheck);
         if (!action) throw new Error(`Unknown game phase (${poll.phase})`);
         if (poll.phase === 7 && poll.negs > 0) {
           // Players still unsigned (e.g. a Never-trade player who won't re-sign): BBGM will ask before free agency.

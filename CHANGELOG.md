@@ -1,5 +1,27 @@
 # Changelog
 
+## 3.1.0
+
+### New
+- **Realism automation.** Realism tab → Automation → "Apply automatically once a season" (off by default; also in the popup).
+  - Once each season ends (draft lottery onward), Courtside applies the Realism suggestions in the game by itself. It works from any tab and during Autopilot, where it runs before the manager plans, so every move uses the new settings.
+  - God Mode is turned on with the first change, because BBGM needs it to change league settings.
+  - Every change is logged with its reasons and can be undone.
+  - Switching the salary cap type stays a manual click, because it reshapes every contract in the league.
+- **Free agency checker in the manager.**
+  - A Manager tab card shows roster size against BBGM's limits, cap room (or "minimum deals only"), free-agency days left and the best fits, and flags problems.
+  - Autopilot no longer jumps through free agency in one step when it doesn't need to: with open spots and players worth signing, it goes day by day (or week by week), because asking prices fall over the 30 days.
+
+### Fixed
+- **Header:** ▲ Open / ▼ Close was cut off while Autopilot was running and in compact mode. The theme button is now icon-only (its tooltip names the theme), the sync label gives way when space is tight, and Open / Close never shrinks.
+
+Tested on the live BBGM site (v2026.10.30):
+- Realism changed Pace 78 → 108 automatically at the draft lottery and turned God Mode on first.
+- BBGM's day step advances free agency (30 → 29 days left).
+- The header fits in all five states.
+
+41 unit tests pass.
+
 ## 3.0.0
 
 The whole roadmap in one release, plus a smarter manager. Everything was tested on the live BBGM site (play.basketball-gm.com, v2026.10.30) in a random-players league on Hard, over several Autopilot seasons.

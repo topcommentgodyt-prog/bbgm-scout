@@ -301,7 +301,12 @@ Choose a mode: **Suggest** (a list of proposed moves, each with Do it / Skip, pl
   - Changes go through BBGM's own `updateGameAttributes`, the same function as the League Settings page. Only these settings can be changed, each within sane bounds: salary cap type, luxury tax, trade salary match, AI-to-AI trades factor, salary cap, luxury tax threshold, min/max contract, inflation average/std, injury rate, three-point tendency factor, pace.
   - Most of these settings are locked unless God Mode is on. If it's off, the confirmation says so and applying turns it on, which disables achievements for that league in BBGM.
   - **Undo last change** restores the previous values; God Mode stays on. Each apply and undo is logged.
-  - Nothing changes unless you press a button.
+  - Nothing changes unless you press a button, or turn on automation (below).
+- **Automation (v3.1, `realismAuto`, off by default):** "Apply automatically once a season" runs `autoRealism` in `content.js`:
+  - once per season per league (stored locally), from the draft lottery on, so a full season backs it
+  - from any tab when you play yourself (after each league-model build), and inside the Autopilot loop before the manager plans, after which the model is rebuilt so every move is planned under the new settings
+  - it applies `settingsToApply(advise(...))` except `salaryCapType` (structural, manual only), skips values that are already set, and turns God Mode on with the first change
+  - each change is logged with its reasons, and **Undo last change** in the Realism tab restores the previous values
 
 ---
 
@@ -446,6 +451,18 @@ Choose a mode: **Suggest** (a list of proposed moves, each with Do it / Skip, pl
 - Basketball GM only; the other ZenGM sports use different rating systems.
 - The coaching effect uses the current budget level; BBGM uses a 3-season average.
 - Trade searches take a few seconds per asset, because every AI team builds an offer.
+
+## 14b. v3.1: free agency checker, header
+
+- **Free agency checker** (`features.js` `freeAgencyCheck`):
+  - roster vs `minRosterSize` / `maxRosterSize`, the target (max − 1 in free agency and the preseason, the minimum otherwise), open spots
+  - cap space, or "minimum deals only" when under 2× the minimum contract of room is left
+  - free-agency days left (BBGM `daysLeft`), and the top five free agents by value + 20 × fit
+  - issues (below the minimum, over the maximum, open spots with nobody signable)
+  - `keepShopping` during free agency while there are days left, open spots and a free agent worth signing
+  
+  `nextPlayAction(poll, settings, fa)` then plays a day (or a week) instead of `untilPreseason`. BBGM's `playMenu.day` advances free-agency days (checked on the live site: 30 → 29). The Manager tab shows it as a card during re-signing, free agency and the preseason, or whenever there's an issue.
+- **Header:** the theme button is icon-only, the sync label hides when space is tight (always while Autopilot runs), and Open / Close never shrinks. In compact mode the dock is 280px and Close is just ▼. Checked on the live site: normal, collapsed, Autopilot running, compact, and compact with Autopilot running.
 
 ## 15. v3.0: win engine, Office, Insights
 

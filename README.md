@@ -1,10 +1,64 @@
 # Courtside
 
-*Formerly BBGM Scout.* The all-in-one GM toolkit for Basketball GM.
+**A free front-office toolkit for [Basketball GM](https://play.basketball-gm.com).** Courtside adds a panel to every league page. It scouts players with simulated careers, grades trades and contracts, runs your draft, manages your roster, and can play up to 100 seasons for you while it runs the team.
 
-A browser extension for Basketball GM: player development outlooks, a hidden-gem assistant, trade help, free-agent and draft tools, automatic team management, and an Autopilot that sims seasons while managing your team. Settings, pins and reports sync across devices.
+**[Get it on the Chrome Web Store](https://chromewebstore.google.com/detail/courtside/fhhhenpmnjmaancmmgbajghdiflckapj)** · [Firefox / manual install](#install) · [Changelog](CHANGELOG.md) · *Formerly BBGM Scout*
 
-![Panel](docs/panel-dark.png)
+## Screenshots
+
+| Player outlook | Trade offers |
+|---|---|
+| ![Outlook card on a player page: peak age, peak OVR, ceiling, risks and live attribute changes](docs/screenshots/outlook.jpg) | ![Trades tab: offers AI teams would accept, ranked by team-rating impact](docs/screenshots/trades.jpg) |
+| **Manager + Autopilot** | **Office** |
+| ![Manager tab with strategy, style and the Autopilot live card](docs/screenshots/manager-autopilot.jpg) | ![Office tab: job security, upcoming decisions and re-signing risk](docs/screenshots/office.jpg) |
+| **Insights** | |
+| ![Insights tab: lineup synergy and playoff matchup scout](docs/screenshots/insights.jpg) | |
+
+## Everything it does
+
+### Scouting
+- **Outlook card** on every player page. Courtside simulates about 1,000 careers using Basketball GM's own progression rules and shows peak age, peak OVR, ceiling, breakout / decline / bust risk, a four-season OVR forecast with an 80% range, and **Scout POT**. It works from all 15 ratings, so two players with the same OVR but different builds age differently.
+- **Live attributes:** every rating with ▲/▼ changes since last season and since you opened the player.
+- **Hover cards:** hover any player's name anywhere in BBGM for their outlook, value to your team, contract, draft rank and injury.
+- **Hidden gems (AI tab):** who the model rates above BBGM's own valuation, and why. There's also an optional **Ask Claude** box that uses your own API key.
+- **Scouting fog** is respected: forecasts for other teams only use the ratings you can see.
+
+### Trades, free agency and the draft
+- **Trades:** your players and picks are shopped to every AI team through BBGM's own trading-block AI, so every offer is one they'd accept. Offers are ranked by how much they change your **team rating** (BBGM's margin-of-victory formula) now and over the next two seasons, and whatever is on the trade screen gets graded.
+- **Targets:** players worth adding, plus BBGM's "What would make this work?" answer, graded.
+- **Free agents:** ranked by value for the money and by how well they fill your weak spots, with Sign buttons.
+- **Draft board:** prospects in tiers, trade-down advice, and an optional Auto Drafter.
+- **Moneyball tab:** payroll efficiency for every team, overpaid vs. bargain contracts, market inefficiencies, age arbitrage, and cheaper swaps that make you better.
+- **Needs tab:** your three biggest weaknesses compared with the league, each linked to the best trade target, free agent and prospect to fix it, plus an injury stress test.
+- **Plan tab:** the next three seasons' team rating, payroll, cap space and picks, with warnings. This is also where you protect players and picks (*Never trade*, *Ask first*, *Big return only*).
+
+### The manager
+- **Strategies:** Auto, Rebuild, Develop, Contend and Win Now. Auto chooses from your roster, projections, cap, picks, title gap and job security, and doesn't flip-flop on a streak.
+- **Styles:** **Standard**, or **Moneyball**, which prices salary at your league's market rate per point of team rating.
+- **Every part of team management:** finances, lineup, minutes (with a tighter playoff rotation), re-signing (it picks contract length, lets bench filler and replaceable players walk, and goes over a soft cap when that's worth it), roster cuts, free agency (with a free agency checker) and trades.
+- **Smart trading:** the minimum improvement a trade must clear adapts to your strategy, the deadline, a tight title race and recent trades. Searches happen when something changes rather than on a timer. Each trade also counts how it fixes your weak spots, lineup synergy and star power.
+- **Difficulty-aware**, and it follows **BBGM challenge modes** and your **franchise goals** (title by a season, under the tax, keep first-rounders, draft a future star).
+- **Every move is explained** with the numbers behind it, and most can be undone.
+
+### Autopilot
+- Sims **1 to 100 seasons** while the manager keeps running your team, with a live view of seasons completed, records, results and the latest moves.
+- Handles the draft, re-signing, free agency, expansion drafts and votes. If you get fired, it can pick a new team, and it clears the owner's messages.
+- Safety checks before every move. Stop takes effect between moves, never in the middle of one.
+
+### Front office and insights
+- **Office:** job security using BBGM's owner-mood formula, upcoming decisions (trade deadline countdown, draft, free agency, roster limits), re-signing risk, watchlist alerts for pinned players, and franchise goals.
+- **Insights:** lineup synergy, a playoff matchup scout, draft class strength, rival GM tendencies, franchise legacy, a **prediction-accuracy report** that grades Courtside's own forecasts a season later, a strategy benchmark, and a health check.
+- **Realism:** league trends over the years with suggested setting tweaks. Apply them yourself, or have them applied automatically once a season.
+
+### Comfort
+- Drag the panel anywhere, use a compact mode, open the command bar with **Alt+K**, switch light and dark themes, and turn everything on or off with the **master switch** in the popup.
+- **Share to Reddit** buttons for player outlooks and Autopilot run summaries.
+- Settings, pins and reports sync through your browser's sync. League data never leaves your browser.
+
+### How it works
+Courtside changes your league only through **Basketball GM's own functions**, the same ones its buttons use. The game enforces its rules (cap, roster limits, deadline, player mood), and moves appear in BBGM's undo log; it never edits your league file directly. It's free, open source (MIT) and unofficial: it isn't affiliated with or endorsed by Basketball GM / ZenGM. Back up a league (Tools → Export) before letting Autopilot run on a save you care about.
+
+The sections below describe each part in detail.
 
 ## What it shows
 

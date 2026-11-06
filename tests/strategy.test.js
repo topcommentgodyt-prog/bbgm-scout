@@ -185,7 +185,7 @@ test("memory: size is capped so long runs can't grow it without bound", () => {
   assert.ok(Object.keys(mem.rejectedP).length <= 400);
 });
 
-test("difficulty (v2.7.1): BBGM's levels, and harder makes youth and picks worth more", () => {
+test("difficulty (v3.0): BBGM's levels, and harder makes youth and picks worth more", () => {
   assert.deepStrictEqual([-0.25, 0, 0.25, 1].map((d) => SG.difficultyProfile(d).label), ["Easy", "Normal", "Hard", "Insane"]);
   assert.strictEqual(SG.difficultyProfile(undefined).label, "Normal");
   const p = { now: 1, future: 1, value: -10, youthNet: 50, picksNet: 20, agingNet: 0 };

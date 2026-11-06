@@ -58,7 +58,7 @@ The whole roadmap in one release, plus a smarter manager. Everything was tested 
 - Move memory has a hard size limit, so 100-season runs can't grow it without bound.
 
 ### Fixed
-- A 2.7.1 change replaced the dock's link helper, which could block navigation from player links. It's renamed and the original behavior is restored.
+- An early 3.0.0 change replaced the dock's link helper, which could block navigation from player links. It's renamed and the original behavior is restored (never released).
 - Franchise legacy no longer shows "undefined" awards.
 
 ### Known limits
@@ -66,7 +66,9 @@ The whole roadmap in one release, plus a smarter manager. Everything was tested 
 - After a team switch, the Autopilot summary's season table shows the new team's record for every season of the run. The live season log shows the right team.
 - Prediction accuracy needs one full season of play before it can grade anything.
 
-## 2.7.1
+## 3.0.0: Autopilot and difficulty
+
+These were built first (as an unreleased local "2.7.1") and ship in 3.0.0.
 
 ### New
 - **Auto-pick a new team when fired** (Autopilot, off by default). When BBGM fires you (game over), Autopilot no longer stops. It takes over the strongest team BBGM offers on its New Team page and keeps playing. That's the five worst records this season, or any team in God Mode. "Strongest" means team rating now and in two seasons. The switch is logged with every team it considered and their scores. Turn it on in the Manager tab's Advanced settings or the popup's Features tab. When it's off, Autopilot stops as before, and the message now points to the toggle.
@@ -88,3 +90,9 @@ The whole roadmap in one release, plus a smarter manager. Everything was tested 
 ### Known limits
 - After a team switch, the run summary's season table shows the new team's record for every season of the run.
 - Re-signing and free-agent decisions don't get a separate difficulty adjustment. They already use BBGM's asking prices, which include difficulty.
+
+## 2.7.1
+
+- The Outlook card's live refresh runs only while the Outlook tab is open and the page is visible (or the player is pinned), and at most every 6 s during Autopilot.
+- Badge refresh checks only the badges on the current page, at most every 15 s during Autopilot; retired players' entries aren't re-read every game day.
+- Changed attribute rows flash once; later re-renders don't replay it.

@@ -394,7 +394,7 @@ Choose a mode: **Suggest** (a list of proposed moves, each with Do it / Skip, pl
   - Autopilot (step size, seasons, checkpoint)
   - Realism advisor
   - Franchise strategy (Auto, Rebuild, Develop, Contend, Win Now) (also in the Manager dashboard)
-  - v2.7.1 / v3.0: auto-pick a new team when fired, auto-read owner messages, go over the cap when needed, Office and Insights tabs, command bar
+  - v3.0: auto-pick a new team when fired, auto-read owner messages, go over the cap when needed, Office and Insights tabs, command bar
 - **Settings:** simulations per player, respect scouting fog, bust benchmark, inline badges, theme, panel position, model version.
 - **Defaults:** scouting tools on; Auto Drafter, Auto Team Management and Autopilot off.
 

@@ -73,8 +73,8 @@ Use BBGM's Play menu yourself for these, with the manager in automatic mode:
 - [ ] Run Autopilot for 2+ seasons with Strategy on **Auto**: if the strategy changes, the log has a "Strategy (Auto): X → Y" entry with reasons, at most once per checkpoint.
 - [ ] (v3.0) The **Autopilot live** card counts seasons completed, shows the current season and record, and lists each finished season's result.
 - [ ] (v3.0) Drag the dock by its logo while Autopilot runs: it follows the mouse and stays where you drop it after a reload. Double-click the logo to reset it.
-- [ ] (v2.7.1) Owner "Annual performance evaluation" messages are marked read after a season (no "Read new message" in BBGM's Play menu).
-- [ ] (v2.7.1, in a copy) With "Auto-pick a new team when fired" on: Tools → God Mode off, then `gameOver` true (or get fired). Autopilot takes over one of the teams on BBGM's New Team page and keeps going.
+- [ ] (v3.0) Owner "Annual performance evaluation" messages are marked read after a season (no "Read new message" in BBGM's Play menu).
+- [ ] (v3.0, in a copy) With "Auto-pick a new team when fired" on: Tools → God Mode off, then `gameOver` true (or get fired). Autopilot takes over one of the teams on BBGM's New Team page and keeps going.
 
 ## F2. Office and Insights (v3.0)
 

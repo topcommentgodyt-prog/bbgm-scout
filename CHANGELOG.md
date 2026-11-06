@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.5.1
+
+- **Autopilot won't run at the same time as another extension's autopilot.** If a companion God Mode extension marks the page while its own manager plays (the `data-evil-manager` attribute on the page), Autopilot won't start and stops if that manager starts. While Autopilot runs, Courtside marks the page the same way (`data-courtside-autopilot`) so the other extension can wait too. Before, both could press Play and make competing moves.
+
 ## 3.5.0
 
 - **Releases publish to the Chrome Web Store automatically.** A new GitHub Actions workflow (`.github/workflows/publish-chrome-web-store.yml`) runs on every published release.

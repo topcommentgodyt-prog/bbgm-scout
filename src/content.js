@@ -2060,7 +2060,9 @@
     st.ap = { running: true, status: "Checking BBGM…", startSeason: null, stopReq: false, runStart: Date.now(), strategies: {}, rosterStart: null, seasonLog: [], seasonsSeen: new Set(), lastPhase: null };
     render();
     // #19: refuse to start if this BBGM version lacks what Autopilot needs (instead of failing mid-run).
-    const bad = await preflight();
+    // Evil Courtside (the owner's mod menu) marks the page while its own manager plays; never run both at once.
+    const evilBusy = () => document.documentElement.dataset.evilManager === "running";
+    const bad = evilBusy() ? "Evil Courtside's manager is running. Stop it first so the two don't play at the same time" : await preflight();
     if (bad) { st.ap.running = false; st.ap.status = `Didn't start: ${bad}`; clearInterval(dialogTimer); await S.addLog({ kind: "error", text: `Autopilot didn't start: ${bad}` }); render(); return; }
     st.ap.status = "Starting…";
     S.startRunLog();
@@ -2069,9 +2071,11 @@
     const apSettings = () => ({ ...settings, manage: { ...settings.manage, resign: true, releases: true, signings: true } });
     let stuck = 0, rounds = 0, roundsKey = "", idle = 0, idleKey = "";
     let lastL = null;
+    document.documentElement.dataset.courtsideAutopilot = "running";
     try {
       for (;;) {
         if (st.ap.stopReq) { st.ap.status = "Stopped."; break; }
+        if (evilBusy()) throw new Error("Evil Courtside's manager started; stopped so the two don't play at the same time");
         let poll = await waitIdle();
         if (st.ap.stopReq) { st.ap.status = "Stopped."; break; }
         if (!poll.inLeague) throw new Error("Not in a league");
@@ -2167,6 +2171,8 @@
     } catch (e) {
       st.ap.status = `Stopped: ${e.message}`;
       await S.addLog({ kind: "error", text: `Autopilot stopped: ${e.message}` });
+    } finally {
+      delete document.documentElement.dataset.courtsideAutopilot;
     }
     // Messages created by the last step (e.g. the season-end owner evaluation).
     try { await autoReadMessages(await B.poll()); } catch (e) { /* not critical */ }

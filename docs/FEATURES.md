@@ -252,6 +252,7 @@ Choose a mode: **Suggest** (a list of proposed moves, each with Do it / Skip, pl
     - expansion-draft protection: Never trade, then Ask first, then highest value for the strategy, up to the league's limit; then it starts the expansion draft
     - expansion and fantasy drafts are simmed to the end
   - No trades during fantasy or expansion drafts. If BBGM reports that you were fired, Autopilot stops and says so. Any other BBGM dialog is reported in the Manager tab.
+  - **Another autopilot on the page (v3.5.1):** if a companion extension's manager is playing (it marks the page with `data-evil-manager="running"`), Autopilot won't start and stops if that manager starts mid-run. While Autopilot runs, Courtside marks the page with `data-courtside-autopilot="running"` so the other extension can wait as well.
 - While it runs, Autopilot makes every manager move itself; the Manager list only shows moves that need your OK (Ask-first assets or contract-rule breaks).
 - Like BBGM's built-in Auto Play, but your team keeps being run by the manager rules above (with re-signing, cuts and signings forced on so the game never stops to ask you), instead of BBGM's AI.
 - Before every step it re-reads the league, runs the manager (finances, lineup, minutes, re-signings, cuts, signings, trades) and the Auto Drafter, then advances:

@@ -51,8 +51,8 @@ This document describes every feature as it exists today (v2), how each one work
 - Header: name (as a link to their page), outlook label, age, OVR, POT, **Scout POT** and position. If the AI Assistant is on, a hidden-gem chip.
 - **Scout POT (v2.4.3):** the forecast's most likely career-high OVR (median of the simulations), shown next to BBGM's POT. BBGM's POT comes from only 20 simulations, so it can be noisy. Green when Scout POT is 3+ above BBGM's, red when 3+ below. It's usually above the year-by-year predictions, because each simulated career peaks in a different season.
 - **Predicted OVR (v2.4.3):** a table for each of the next four seasons with age, expected OVR (average of the simulations), the 80% range (10th–90th percentile) and the change from today. Hover cards show the next two seasons, plus Scout POT vs BBGM POT. Predictions use only ratings you can see; scouting fog widens the range.
-- **Attributes with live changes (v2.7):** every rating (height, strength, speed … rebounding) plus OVR, with ▲/▼ for the change since the end of last season and a **Live** column for the change since you first opened that player in this browser session. The card refreshes on its own as games are played, whether you use BBGM's Play menu, play one day at a time, or run Autopilot (about every 6 seconds while BBGM is simulating, right away when it stops), so preseason progression shows up without reloading. Changed rows flash briefly. Fog of war is applied the same way BBGM shows other teams' ratings.
-- **Inline badges refresh (v2.7):** after each phase or game day, badges for players whose OVR or POT changed are recalculated.
+- **Attributes with live changes (v2.7):** every rating (height, strength, speed … rebounding) plus OVR, with ▲/▼ for the change since the end of last season and a **Live** column for the change since you first opened that player in this browser session. The card refreshes on its own as games are played, whether you use BBGM's Play menu, play one day at a time, or run Autopilot (about every 6 seconds while BBGM is simulating or Autopilot is running, right away when it stops), so preseason progression shows up without reloading. It only refreshes while the Outlook tab is open and the page is visible (or the player is pinned); otherwise it catches up as soon as you look at it again (v2.7.1). Changed rows flash briefly. Fog of war is applied the same way BBGM shows other teams' ratings.
+- **Inline badges refresh (v2.7):** after each phase or game day, badges for players whose OVR or POT changed are recalculated. Only badges on the current page are checked, and during Autopilot at most every 15 seconds, so long runs aren't slowed down (v2.7.1).
 - Outlook labels: High upside, Rising, Near peak, At peak, Declining.
 - **Peak age:** median age at which the player hits their career-high OVR, with the middle-50% range.
 - **Peak OVR:** median career-high OVR, with the 10th percentile shown as "low".
@@ -212,7 +212,8 @@ Choose a mode: **Suggest** (a list of proposed moves, each with Do it / Skip, pl
    - Score = w_now × rating change now + w_future × average change over the next two seasons + 0.004 × long-term value − penalties for young talent given up, draft picks given up, aging (expected OVR decline of players 30+ received), roster overflow and new payroll above the cap/tax line over three seasons.
    - Weights (now / future / youth / picks / aging): Rebuild 0.1 / 0.9 / 1 / 1 / 0.2, Develop 0.35 / 0.65 / 0.6 / 0.5 / 0.4, Contend 0.65 / 0.35 / 0.25 / 0.25 / 0.6, Win Now 0.9 / 0.1 / 0 / 0 / 1.
    - Checks: Rebuild needs the future not to get worse and value to improve; Develop allows only small short-term or value losses; Contend needs help now (at least half the minimum) without wrecking the future; Win Now needs at least the minimum now. Never over the roster maximum, and in hard-cap leagues never over the cap (counting signings planned in the same round).
-   - **Move memory** (per league, on this device): no trading a player acquired within the cooldown (default 30 game days) unless the score is at least 3× the minimum, never sending him back to the team he came from during the cooldown, no reacquiring a player you just traded away, and no retrying a rejected deal during the cooldown. Moves that fail three times are paused for about 60 game days. Never trade is never overridden.
+   - **Move memory** (per league, on this device): a rejected deal isn't proposed again for 10 game days, and the same players (only the picks changed) aren't retried after two rejections unless the score is at least 3× the minimum. Moves that fail three times are paused for about 60 game days. The memory has a hard size limit. Never trade is never overridden. (v3.0 removed the trade cooldown on newly acquired players.)
+   - **Fit (v3.0):** see section 15.
 
    If BBGM's AI rejects a proposed deal, the manager asks "What would make this work?" once (v2.4.3). It takes the counter-offer only if it still clears the strategy's bar, fits the roster and contract rules, and asks for no protected assets. The log shows BBGM's reason for any rejection.
 
@@ -392,7 +393,8 @@ Choose a mode: **Suggest** (a list of proposed moves, each with Do it / Skip, pl
   - Auto Team Management (mode, each area, budget style, rotation size, tanking, minimum trade improvement, search frequency)
   - Autopilot (step size, seasons, checkpoint)
   - Realism advisor
-  - Franchise strategy (Auto, Rebuild, Develop, Contend, Win Now) and trade cooldown (also in the Manager dashboard)
+  - Franchise strategy (Auto, Rebuild, Develop, Contend, Win Now) (also in the Manager dashboard)
+  - v2.7.1 / v3.0: auto-pick a new team when fired, auto-read owner messages, go over the cap when needed, Office and Insights tabs, command bar
 - **Settings:** simulations per player, respect scouting fog, bust benchmark, inline badges, theme, panel position, model version.
 - **Defaults:** scouting tools on; Auto Drafter, Auto Team Management and Autopilot off.
 
@@ -423,7 +425,17 @@ Choose a mode: **Suggest** (a list of proposed moves, each with Do it / Skip, pl
 
 ## 14. Testing and known limits
 
-- Unit tests cover the progression engine, OVR formula, coaching and fog effects, trend, confidence, team rating and performance (1,000 simulations of a 19-year-old in well under 250 ms). Since v2.4 they also cover the Strategy Brain (clear cases, rising teams, hysteresis, checkpoints, manual override, legacy setting), trade scoring and checks, pick-value uncertainty, move memory (cooldown, reversals, rejected deals, big-opportunity exception, failure counts, pruning), the game clock and the run summary.
+- Unit tests cover the progression engine, OVR formula, coaching and fog effects, trend, confidence, team rating and performance (1,000 simulations of a 19-year-old in well under 250 ms). Since v2.4 they also cover the Strategy Brain (clear cases, rising teams, hysteresis, checkpoints, manual override, legacy setting), trade scoring and checks, pick-value uncertainty, move memory (rejected and nearly identical deals, big-opportunity exception, failure counts, pruning, size cap), the game clock and the run summary. Since v3.0 also difficulty profiles, the title-shot and job-risk rules, and fit in the trade score.
+- **v3.0 was tested on the live BBGM site** (play.basketball-gm.com v2026.10.30, a random-players league on Hard) by loading the scripts into the page with a stand-in for the extension storage API, over about five Autopilot seasons with no script errors. Checked there:
+  - BBGM's real New Team list after a firing, `switchTeam`, the owner-mood formula and the difficulty values
+  - auto-read of the owner's evaluation message
+  - every Office and Insights section, and the health check (all actions present)
+  - prediction accuracy (463 players graded)
+  - the live Autopilot section, the action queue, the timeline and the command bar
+  - dragging the dock while Autopilot runs
+  - re-signing decisions and offseason trade scores
+  
+  It wasn't installed as a real extension, and Firefox wasn't tested.
 - **Backtest harness (v2.4):** `node tests/backtest/run.js` runs the Manager/Autopilot loop of v2.3.0 and the working tree side by side on a seeded mock league.
   - Scenarios: default, rebuilding, contender, expensive aging roster, injury-heavy, and custom rules (hard cap, 13/10 roster limits, 40 games, different contract limits). Both versions start from identical states, over several seeds, plus an optional long run.
   - It records win %, titles, playoff appearances, roster value, payroll, failed actions, rule violations, stalls, early stops and runtime.
@@ -434,3 +446,27 @@ Choose a mode: **Suggest** (a list of proposed moves, each with Do it / Skip, pl
 - Basketball GM only; the other ZenGM sports use different rating systems.
 - The coaching effect uses the current budget level; BBGM uses a 3-season average.
 - Trade searches take a few seconds per asset, because every AI team builds an offer.
+
+## 15. v3.0: win engine, Office, Insights
+
+- **Win engine** (`src/insights.js` `winContext` / `fitGain`, used by `league.js` `tradeImpact` and the manager's free-agent ranking). It's recomputed with every league-model build:
+  - your rotation's areas (CATS in `planning.js`) as z-scores against every team; areas below −0.3 count as weak, weighted by how far below
+  - a trade or signing adds 0.04 × change × weight for each weak area, plus the change in the best five's BBGM synergy (offense + defense + rebounding, BBGM's game-sim formula)
+  - when contending within 3 rating points of the top three, it also adds 0.08 per OVR point on the best player
+  
+  The total is capped at ±0.6 team-rating points and enters `tradeScore` weighted 0.4 + 0.6 × the strategy's "now" weight.
+- **Team rating in trade decisions** pads empty roster spots with a replacement-level 42 OVR (`REPLACEMENT_OVR`), not 0. BBGM's own formula (`teamMov` with no pad) is unchanged everywhere else.
+- **Strategy:** `titleGap` (rating points behind the best team) is required for Win Now (≤ 2.5 to enter, ≤ 3.5 to stay), and `jobRisk` rules out Rebuild. Franchise objectives are applied after `resolve` in `league.js`.
+- **Re-signing:**
+  - contract length by age and trajectory (5 / 3 / 2 / 1 years), capped by league and user limits
+  - lets walk bench filler (outside next season's rotation), replaceable players (a free agent at least as good for under 80% of the ask), deals that break the payroll plan (unless "over the cap when needed" applies) and deals that break the luxury-tax objective
+- **Office:** job security uses BBGM's `updateOwnerMood`: wins 0.25 × (W − G/2)/(G/2), playoffs −0.2 to +0.2, money (profit − $15M)/$100M scaled by cap/$90M, each capped at +1. Fired below −1 after `gracePeriodEnd`.
+- **Insights:**
+  - lineup synergy: best five out of the top 9, fit = OVR + 8 × synergy
+  - playoff scout: per-game win chance from the rating gap
+  - draft class: top-5 and lottery value vs stored past classes
+  - rivals: BBGM team strategy, age, picks, payroll and trade events
+  - legacy: `getCopies.players` with `activeAndRetired`
+  - accuracy: forecasts stored each regular season and graded against next season's visible OVR, so fog is never leaked
+  - benchmark and health check (`bbgm.api` function presence for every allow-listed action)
+- **Allow-list:** `main.switchTeam` (auto-pick a new team when fired).

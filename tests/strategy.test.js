@@ -83,30 +83,34 @@ test("pick value: uncertainty spreads value across slots and stays within the cu
   assert.ok(second < mid);
 });
 
-test("memory: cooldown, no reversals, no retrying rejected deals, big-opportunity exception", () => {
+test("memory (v3.0): no player cooldown; rejected and nearly identical deals aren't retried for a while", () => {
   const mem = SG.emptyMemory();
   const teams = [{ tid: 1, pids: [10], dpids: [] }, { tid: 2, pids: [20], dpids: [] }];
   const t0 = SG.gameClock(2026, 1, 10);
   SG.recordTrade(mem, teams, t0);
-  // Trading the newly acquired player (20) again soon is blocked...
+  // The trade cooldown was removed: a newly acquired player can be traded again right away,
   const flip = [{ tid: 1, pids: [20], dpids: [] }, { tid: 3, pids: [30], dpids: [] }];
-  assert.match(SG.tradeBlocked(mem, flip, t0 + 5, { cooldown: 30, score: 0.6, min: 0.5 }), /cooldown/);
-  // ...unless the gain is big,
-  assert.strictEqual(SG.tradeBlocked(mem, flip, t0 + 5, { cooldown: 30, score: 2, min: 0.5 }), null);
-  // ...but he never goes straight back to his old team, even for a big gain.
-  const back = [{ tid: 1, pids: [20], dpids: [] }, { tid: 2, pids: [21], dpids: [] }];
-  assert.match(SG.tradeBlocked(mem, back, t0 + 5, { cooldown: 30, score: 5, min: 0.5 }), /old team/);
-  // Getting back the player we just sent away is blocked.
-  const regain = [{ tid: 1, pids: [11], dpids: [] }, { tid: 2, pids: [10], dpids: [] }];
-  assert.match(SG.tradeBlocked(mem, regain, t0 + 5, { cooldown: 30 }), /traded away/);
-  // After the cooldown everything is allowed again.
-  assert.strictEqual(SG.tradeBlocked(mem, flip, t0 + 40, { cooldown: 30, score: 0.6, min: 0.5 }), null);
-  // Rejected deals aren't retried during the cooldown.
+  assert.strictEqual(SG.tradeBlocked(mem, flip, t0 + 1, { score: 0.6, min: 0.5 }), null);
+  // ...including back to his old team, and a player we sent away can be reacquired.
+  assert.strictEqual(SG.tradeBlocked(mem, [{ tid: 1, pids: [20], dpids: [] }, { tid: 2, pids: [21], dpids: [] }], t0 + 1, { score: 0.6, min: 0.5 }), null);
+  assert.strictEqual(SG.tradeBlocked(mem, [{ tid: 1, pids: [11], dpids: [] }, { tid: 2, pids: [10], dpids: [] }], t0 + 1, {}), null);
+  // Rejected deals aren't retried for a few game days...
   const deal = [{ tid: 1, pids: [12], dpids: [3] }, { tid: 4, pids: [40], dpids: [] }];
   SG.recordRejected(mem, deal, t0);
-  assert.match(SG.tradeBlocked(mem, deal, t0 + 1, { cooldown: 30 }), /rejected/);
+  assert.match(SG.tradeBlocked(mem, deal, t0 + 1, {}), /rejected/);
+  // ...and can be tried again after that.
+  assert.strictEqual(SG.tradeBlocked(mem, deal, t0 + 15, {}), null);
   // Same deal with assets listed in a different order has the same signature.
   assert.strictEqual(SG.sigOf(deal), SG.sigOf([{ tid: 1, pids: [12], dpids: [3] }, { tid: 4, pids: [40], dpids: [] }]));
+  // Nearly identical (same players, different picks) is blocked after two rejections, unless the gain is big.
+  const v1 = [{ tid: 1, pids: [13], dpids: [5] }, { tid: 6, pids: [60], dpids: [] }];
+  const v2 = [{ tid: 1, pids: [13], dpids: [7] }, { tid: 6, pids: [60], dpids: [] }];
+  const v3 = [{ tid: 1, pids: [13], dpids: [8] }, { tid: 6, pids: [60], dpids: [] }];
+  SG.recordRejected(mem, v1, t0);
+  assert.strictEqual(SG.tradeBlocked(mem, v3, t0 + 1, { score: 0.6, min: 0.5 }), null);
+  SG.recordRejected(mem, v2, t0 + 1);
+  assert.match(SG.tradeBlocked(mem, v3, t0 + 2, { score: 0.6, min: 0.5 }), /nearly identical/);
+  assert.strictEqual(SG.tradeBlocked(mem, v3, t0 + 2, { score: 2, min: 0.5 }), null);
 });
 
 test("memory: failures counted, old entries pruned", () => {
@@ -164,11 +168,45 @@ test("strategy: after a recent change, a small move back doesn't flip it again",
   assert.strictEqual(SG.resolve("auto", f({ rankNow: 0.05, rankFuture: 0.05 }), "2027:start", stored).key, "rebuild");
 });
 
-test("memory: a cooldown started at the draft still applies in the next preseason", () => {
+test("memory: a deal rejected at the draft isn't retried right away in the next phase", () => {
   const mem = SG.emptyMemory();
   const draft = SG.gameClock(2026, 5, 82);
-  SG.recordTrade(mem, [{ tid: 1, pids: [10], dpids: [] }, { tid: 2, pids: [20], dpids: [] }], draft);
-  const preseason = SG.gameClock(2027, 0, 0);
-  assert.ok(preseason - draft < 30, `offseason gap ${preseason - draft}`);
-  assert.match(SG.tradeBlocked(mem, [{ tid: 1, pids: [20], dpids: [] }, { tid: 3, pids: [30], dpids: [] }], preseason, { cooldown: 30, score: 0.6, min: 0.5 }), /cooldown/);
+  const deal = [{ tid: 1, pids: [10], dpids: [] }, { tid: 2, pids: [20], dpids: [] }];
+  SG.recordRejected(mem, deal, draft);
+  assert.match(SG.tradeBlocked(mem, deal, SG.gameClock(2026, 6, 82), {}), /rejected/);
+});
+
+test("memory: size is capped so long runs can't grow it without bound", () => {
+  const mem = SG.emptyMemory();
+  const t = SG.gameClock(2026, 1, 5);
+  for (let i = 0; i < 900; i++) SG.recordRejected(mem, [{ tid: 1, pids: [i], dpids: [] }, { tid: 2, pids: [i + 1000], dpids: [] }], t);
+  SG.pruneMemory(mem, t + 1);
+  assert.ok(Object.keys(mem.rejected).length <= 400);
+  assert.ok(Object.keys(mem.rejectedP).length <= 400);
+});
+
+test("difficulty (v2.7.1): BBGM's levels, and harder makes youth and picks worth more", () => {
+  assert.deepStrictEqual([-0.25, 0, 0.25, 1].map((d) => SG.difficultyProfile(d).label), ["Easy", "Normal", "Hard", "Insane"]);
+  assert.strictEqual(SG.difficultyProfile(undefined).label, "Normal");
+  const p = { now: 1, future: 1, value: -10, youthNet: 50, picksNet: 20, agingNet: 0 };
+  assert.ok(SG.tradeScore("develop", p, SG.difficultyProfile(1)).score < SG.tradeScore("develop", p, SG.difficultyProfile(0)).score);
+  // Contend / Win Now accept a smaller real gain on Insane.
+  const im = { score: 0.45, now: 0.45, future: -0.2, value: -15, overflow: 0 };
+  assert.ok(!SG.tradeOk("winnow", im, 0.5, SG.difficultyProfile(0)));
+  assert.ok(SG.tradeOk("winnow", im, 0.5, SG.difficultyProfile(1)));
+});
+
+test("strategy (v3.0): Win Now needs a real title shot; a job at risk rules out a rebuild", () => {
+  const aging = f({ rankNow: 0.95, rankFuture: 0.6, coreAge: 31 });
+  assert.strictEqual(SG.choose({ ...aging, titleGap: 1 }).key, "winnow");
+  assert.strictEqual(SG.choose({ ...aging, titleGap: 6 }).key, "contend");
+  assert.strictEqual(SG.choose(f({ rankNow: 0.05, rankFuture: 0.1 })).key, "rebuild");
+  assert.strictEqual(SG.choose({ ...f({ rankNow: 0.05, rankFuture: 0.1 }), jobRisk: "high" }).key, "develop");
+});
+
+test("trade score (v3.0): fit counts, more for strategies about now", () => {
+  const p = { now: 0.5, future: 0.5, value: 0, youthNet: 0, picksNet: 0, agingNet: 0 };
+  assert.ok(SG.tradeScore("contend", { ...p, fit: 0.4 }).score > SG.tradeScore("contend", p).score);
+  const gain = (k) => SG.tradeScore(k, { ...p, fit: 0.4 }).score - SG.tradeScore(k, p).score;
+  assert.ok(gain("winnow") > gain("rebuild"));
 });

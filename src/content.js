@@ -788,6 +788,8 @@
         st.outlook = o;
         if (st.tab === "outlook" && !settings.panelCollapsed) render();
         if (o.pinned) S.refreshPin(pinSummary(o));
+        // Highlight changed rows once; later re-renders (theme, tabs) shouldn't replay the flash.
+        if (o.fresh.size) setTimeout(() => { o.fresh = null; }, 2500);
         return;
       }
       const league = await ensureIdentity();
@@ -2081,17 +2083,26 @@
   // ======================================================================
   // Keep the open player's Outlook and the inline badges current while games are played (by you, BBGM's play
   // menu or Autopilot): ratings change in preseason progression and during the season.
-  let lastBadgeKey = "", liveBusy = false;
+  let lastBadgeKey = "", lastBadgeAt = 0, liveBusy = false;
   function refreshLive(p) {
     const o = st.outlook;
     const pk = progressKey(p);
-    // While BBGM is simulating, check at most every 6 s; otherwise as soon as anything moved.
-    if (o && o.result && !o.loading && !liveBusy && o.key !== pk && (!p.gameSim || Date.now() - o.at > 6000)) {
+    // Only while someone can see it (Outlook tab open, page visible) or it feeds a pinned player; a hidden card
+    // catches up as soon as it's shown again, because its key is still old.
+    const seen = !document.hidden && st.tab === "outlook" && !settings.panelCollapsed;
+    // While BBGM is simulating or Autopilot is running, check at most every 6 s; otherwise as soon as anything moved.
+    const busy = p.gameSim || st.ap.running;
+    if (o && o.result && !o.loading && !liveBusy && o.key !== pk && (seen || o.pinned) && (!busy || Date.now() - o.at > 6000)) {
       liveBusy = true;
       showPlayer(o.lid, o.pid, { quiet: true }).catch(() => {}).finally(() => { liveBusy = false; });
     }
+    // Badges: after each game day, but at most every 15 s during Autopilot so long runs aren't slowed down.
     const bk = keyOf(p);
-    if (bk !== lastBadgeKey && !p.gameSim) { lastBadgeKey = bk; refreshBadges(); }
+    if (bk !== lastBadgeKey && !p.gameSim && (!st.ap.running || Date.now() - lastBadgeAt > 15000)) {
+      lastBadgeKey = bk;
+      lastBadgeAt = Date.now();
+      refreshBadges();
+    }
   }
 
   let loopBusy = false;
@@ -2172,19 +2183,30 @@
     document.querySelectorAll(".bbgm-scout-badge").forEach((b) => b.remove());
   }
 
-  // The game moved on: forget badges for players whose ratings changed, then redraw them.
+  // The game moved on: re-check the badges on this page and redraw the ones whose OVR/POT changed. Cached badges
+  // for players not on this page are dropped (they're recalculated if you see them again), so the check stays
+  // small however many pages you've visited.
   async function refreshBadges() {
     const lid = lidNow();
+    if (!lid) return;
     const mine = [...badgeCache.keys()].filter((k) => k.startsWith(`${lid}:`));
-    if (!lid || !mine.length) return;
+    if (!mine.length) return;
+    if (!badgesWanted()) { mine.forEach((k) => badgeCache.delete(k)); return; }
+    const onPage = new Set([...document.querySelectorAll(".bbgm-scout-badge")].map((b) => b.dataset.pid).filter(Boolean).map(Number));
+    const check = [];
+    for (const k of mine) {
+      const pid = Number(k.split(":")[1]);
+      if (onPage.has(pid) && badgeCache.get(k)) check.push([k, pid]);
+      else if (badgeCache.get(k)) badgeCache.delete(k); // off-page; retired/unknown (null) entries are kept so they aren't re-read every day
+    }
+    if (!check.length) return;
     try {
-      const ctx = await D.load(lid, [...new Set(mine.map((k) => Number(k.split(":")[1])))]);
+      const ctx = await D.load(lid, [...new Set(check.map(([, pid]) => pid))]);
       let n = 0;
-      for (const k of mine) {
-        const p = ctx.players.get(Number(k.split(":")[1]));
+      for (const [k, pid] of check) {
+        const p = ctx.players.get(pid);
         const r = p && p.ratings && p.ratings[p.ratings.length - 1];
-        const s = badgeCache.get(k);
-        if (!s || !r || s.sig !== `${r.season}:${r.ovr}:${r.pot}`) { badgeCache.delete(k); n++; }
+        if (!r || badgeCache.get(k).sig !== `${r.season}:${r.ovr}:${r.pot}`) { badgeCache.delete(k); n++; }
       }
       if (n) { clearBadges(); scheduleBadges(); }
     } catch (e) { /* league DB busy; try next time */ }
@@ -2232,6 +2254,7 @@
         if (!s) continue;
         const b = document.createElement("span");
         b.className = "bbgm-scout-badge";
+        b.dataset.pid = pid;
         b.textContent = `▲${s.peakOvr}`;
         b.title = `Courtside: projected peak ${s.peakOvr} OVR at age ${s.peakAge} · ceiling ${s.ceiling} · breakout ${Math.round(s.breakout * 100)}%`;
         a.insertAdjacentElement("afterend", b);

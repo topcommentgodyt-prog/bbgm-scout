@@ -28,7 +28,7 @@ For each step, mark ✅ / ❌ and note what happened.
 - [ ] Manager dashboard: Strategy shows **Auto (…)** with a strategy name; expanding it lists the reasons (team rating percentiles, core age, picks, cap room). Does the pick match your team?
 - [ ] Expand **Why** on a few suggestions: each shows a reason, benefits and costs, the strategy, and "projected".
 - [ ] Switch Strategy to **Rebuild**, then **Win Now**: the Trades and Targets headers change, and the suggested trades change. Set it back to **Auto**.
-- [ ] **Advanced settings** is collapsed by default and opens; changing Trade cooldown or Minimum trade improvement sticks after a page reload.
+- [ ] **Advanced settings** is collapsed by default and opens; changing Minimum trade improvement or the two checkboxes (auto-pick a new team, auto-read owner messages) sticks after a page reload.
 
 ## C. One action at a time
 
@@ -45,8 +45,8 @@ For each step, mark ✅ / ❌ and note what happened.
 
 ## D2. Move memory and payroll plan (v2.4)
 
-- [ ] Approve one suggested trade, then press **Re-plan** right away: no new suggestion trades away a player you just received, and none sends one back to his old team.
 - [ ] If BBGM rejects a proposed trade, the same deal isn't proposed again in the next few game days.
+- [ ] (v3.0) A trade's **Why** lists "fits how you win: …" when it improves a weak area.
 - [ ] In a league over the luxury tax (or with a hard cap), Free-agent signings beyond minimum contracts stop before the payroll plan's limit; the signing's **Why** shows the payroll line.
 - [ ] Re-signing phase: a young player (25 or under) projected to start is re-signed unless clearly overpriced; the **Why** says "young core".
 
@@ -71,6 +71,17 @@ Use BBGM's Play menu yourself for these, with the manager in automatic mode:
 - [ ] With "Moves that need your OK" on **Autopilot makes them** (default), Autopilot goes from re-signing through free agency to the next preseason without any click, even with many free agents in the pool.
 - [ ] Expansion (optional, in a copy): in God Mode set the league's expansion probability to 100%. After the playoffs, Autopilot votes, protects players (Never trade first) and runs the expansion draft without stopping.
 - [ ] Run Autopilot for 2+ seasons with Strategy on **Auto**: if the strategy changes, the log has a "Strategy (Auto): X → Y" entry with reasons, at most once per checkpoint.
+- [ ] (v3.0) The **Autopilot live** card counts seasons completed, shows the current season and record, and lists each finished season's result.
+- [ ] (v3.0) Drag the dock by its logo while Autopilot runs: it follows the mouse and stays where you drop it after a reload. Double-click the logo to reset it.
+- [ ] (v2.7.1) Owner "Annual performance evaluation" messages are marked read after a season (no "Read new message" in BBGM's Play menu).
+- [ ] (v2.7.1, in a copy) With "Auto-pick a new team when fired" on: Tools → God Mode off, then `gameOver` true (or get fired). Autopilot takes over one of the teams on BBGM's New Team page and keeps going.
+
+## F2. Office and Insights (v3.0)
+
+- [ ] Office: job security shows wins / playoffs / money and a projection; "Coming up" shows the trade deadline countdown during the season.
+- [ ] Office: the re-signing risk table lists expiring players with a willingness %.
+- [ ] Insights: health check is all ✓; lineup synergy, playoff scout and draft class show; Rival GM and Franchise legacy load on their buttons.
+- [ ] Alt+K opens the command bar; typing "office" and Enter opens the Office tab.
 
 ## G. What to send back if something fails
 

@@ -58,7 +58,10 @@
     summary.trend = tr.label;
     summary.confidence = conf.label;
     summary.label = E.outlookLabel({ age, ovr: shownOvr, fc });
-    return { summary, fc, trend: tr, confidence: conf, fog, coachLevel, ovrHistory: histRows.map((r) => ({ age: r.season - p.born.year, ovr: r.ovr })) };
+    // Attributes as the game shows them now, and at the end of last season (for the ▲/▼ changes).
+    const prevRow = histRows.length > 1 ? histRows[histRows.length - 2] : null;
+    const attrs = { season: cur.season, ovr: shownOvr, pot: shownPot, ratings: shown, prev: prevRow ? { season: prevRow.season, ovr: prevRow.ovr, ratings: Object.fromEntries(E.RATING_KEYS.map((k) => [k, prevRow[k]])) } : null };
+    return { summary, fc, trend: tr, confidence: conf, fog, coachLevel, attrs, ovrHistory: histRows.map((r) => ({ age: r.season - p.born.year, ovr: r.ovr })) };
   }
 
   root.BBGMScoutAnalyze = { analyze };

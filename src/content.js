@@ -79,6 +79,7 @@
     targetsBusy: null,
     pending: null, // manager suggestions
     openDetails: {}, // which expandable sections are open, so re-renders don't close them
+    ratingBase: new Map(), // "lid:pid" -> attributes when you first opened the player this session (for the Live column)
     log: [],
     ap: { running: false, status: "", startSeason: null, stopReq: false },
     ask: { q: "", busy: false, answer: "", error: "" },
@@ -385,6 +386,10 @@
     background:radial-gradient(circle at 35% 35%, #ffb27a, var(--acc) 55%, var(--acc2)); box-shadow:inset 0 0 0 1px rgba(0,0,0,.15); }
   .h:first-child { margin-top:0; }
   table { width:100%; border-collapse:separate; border-spacing:0; font-variant-numeric:tabular-nums; font-size:12px; }
+  .dl { font-size:11px; font-weight:600; white-space:nowrap; } .dl.up { color:var(--good); } .dl.dn { color:var(--bad); }
+  table.attrs td:nth-child(n+2), table.attrs th:nth-child(n+2) { text-align:right; }
+  tr.fresh td { animation: freshrow 2.4s ease-out; }
+  @keyframes freshrow { from { background:rgba(255,170,60,.35); } to { background:transparent; } }
   th { text-align:right; font-weight:700; color:var(--mut); font-size:10px; text-transform:uppercase; letter-spacing:.6px; padding:3px 4px; border-bottom:2px solid var(--line); }
   td { text-align:right; padding:5px 4px; border-bottom:1px solid var(--line); }
   tr:nth-child(odd) td { background:color-mix(in srgb, var(--chip) 35%, transparent); }
@@ -557,6 +562,25 @@
       ${rows.map((x) => `<tr><td>${x.season}</td><td>${x.age}</td><td><b>${x.ovr}</b></td><td title="${x.lo}–${x.hi}">${ribbon(x, lo0, hi0)}<small>${x.lo}–${x.hi}</small></td><td class="${x.ovr - s.ovr >= 2 ? "good" : x.ovr - s.ovr <= -2 ? "bad" : ""}">${x.ovr - s.ovr >= 0 ? "+" : ""}${x.ovr - s.ovr}</td></tr>`).join("")}</table>`;
   }
 
+  const ATTR = [["hgt", "Height"], ["stre", "Strength"], ["spd", "Speed"], ["jmp", "Jumping"], ["endu", "Endurance"], ["ins", "Inside"], ["dnk", "Dunks/Layups"], ["ft", "Free throws"], ["fg", "Mid-range"], ["tp", "Three-pointers"], ["oiq", "Offensive IQ"], ["diq", "Defensive IQ"], ["drb", "Dribbling"], ["pss", "Passing"], ["reb", "Rebounding"]];
+  const delta = (d, tip) => (d ? `<span class="dl ${d > 0 ? "up" : "dn"}" title="${esc(tip)}">${d > 0 ? "▲" : "▼"}${Math.abs(d)}</span>` : `<span class="dl mut" title="${esc(tip)}">–</span>`);
+  // Every attribute with its change since last season, plus live changes since you opened the page. Refreshes as games are played.
+  function attrTable(o) {
+    const a = o.result.attrs;
+    if (!a) return "";
+    const base = st.ratingBase.get(`${o.lid}:${o.pid}`);
+    const prev = a.prev;
+    const liveD = (v, bv) => (base && bv != null ? v - bv : 0);
+    const row = (k, label, v, pv, ld) => `<tr class="${o.fresh && o.fresh.has(k) ? "fresh" : ""}"><td>${label}</td><td><b>${v}</b></td><td>${pv == null ? `<span class="mut">–</span>` : delta(v - pv, `${pv} at the end of ${prev.season}`)}</td><td>${ld ? delta(ld, `${v - ld} when you first opened this player${base.season !== a.season ? ` (${base.season})` : ""}`) : ""}</td></tr>`;
+    const liveN = ATTR.filter(([k]) => liveD(a.ratings[k], base && base.ratings[k])).length;
+    const upd = new Date(o.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
+    return `${det("attrs", "", true)}<summary>Attributes <span class="mut">${prev ? `· vs ${prev.season}` : "· first season"}${liveN ? ` · <b class="good">${liveN} changed live</b>` : ""}</span></summary>
+      <table class="attrs"><tr><th>Rating</th><th>Now</th><th title="Change since the end of last season">Season</th><th title="Change since you first opened this player (this browser session); updates automatically as games are played">Live</th></tr>
+      ${row("ovr", "<b>Overall</b>", a.ovr, prev ? prev.ovr : null, liveD(a.ovr, base && base.ovr))}
+      ${ATTR.map(([k, label]) => row(k, label, a.ratings[k], prev ? prev.ratings[k] : null, liveD(a.ratings[k], base && base.ratings[k]))).join("")}</table>
+      <div class="why">Updates on its own as you play · last checked ${upd}${o.result.fog ? " · fog of war on (other teams' ratings are estimates)" : ""}</div></details>`;
+  }
+
   function outlookBody() {
     const o = st.outlook;
     if (!o) return `<div class="msg">Open any player's page to see their development outlook.${settings.features.assistant ? " The AI tab lists hidden gems around the league." : ""}</div>`;
@@ -593,6 +617,7 @@
         <div title="${esc(r.trend.diff != null ? `Average ${num(r.trend.diff)} OVR/yr vs. expected\n${trendTip}` : "Needs at least one completed season")}\n\nBBGM progression is random each year, so this describes the past; it doesn't change the forecast."><span>Development trend</span><span class="${trCls}">${esc(s.trend)}</span></div>
         <div title="${esc(r.confidence.reasons.join("\n"))}"><span>Confidence</span><span class="${confCls}">${s.confidence} · ${r.confidence.score}</span></div>
       </div>
+      ${attrTable(o)}
       ${predTable(r)}
       ${sparkline(r)}
       <div class="why">${esc(r.confidence.reasons[0])}${r.fog ? " · fog on" : ""} · ${r.fc.nSims.toLocaleString()} sims</div>
@@ -607,19 +632,33 @@
     const s = o.result.summary;
     return { lid: o.lid, league: st.league || undefined, ...s, label: s.label, savedAt: Date.now(), url: location.pathname };
   }
-  async function showPlayer(lid, pid) {
-    const o = { lid, pid, loading: true };
-    st.outlook = o;
-    st.tab = "outlook";
-    render();
+  // quiet: refresh the open player in place (after games are played) without the loading screen or switching tabs.
+  async function showPlayer(lid, pid, { quiet = false } = {}) {
+    const old = st.outlook;
+    const o = { lid, pid, loading: !quiet, key: progressKey(st.poll), at: Date.now() };
+    if (quiet) { if (!old || old.pid !== pid || old.lid !== lid || !old.result) return; o.pinned = old.pinned; old.key = o.key; old.at = o.at; }
+    else { st.outlook = o; st.tab = "outlook"; render(); }
     try {
       // Ask BBGM to write its in-memory changes to the database first, so the numbers are current.
       await B.call("main", "idbCacheFlush", undefined, 5000).catch(() => {});
       const ctx = await D.load(lid, [pid]);
       const p = ctx.players.get(pid);
       if (!p) throw new Error("This player isn't in the saved league data yet. Try again after the next game day.");
-      if (st.outlook !== o) return;
+      if (st.outlook !== (quiet ? old : o)) return;
       o.result = A.analyze(ctx, p, settings);
+      const bk = `${lid}:${pid}`, a = o.result.attrs;
+      const base = st.ratingBase.get(bk);
+      if (!base) st.ratingBase.set(bk, { season: a.season, ovr: a.ovr, ratings: { ...a.ratings }, at: Date.now() }); // "Live" = since you first opened this player
+      // What changed since the last refresh, so the new numbers can be highlighted.
+      const pa = quiet && old.result.attrs;
+      o.fresh = new Set(pa ? Object.keys(a.ratings).filter((k) => a.ratings[k] !== pa.ratings[k]).concat(a.ovr !== pa.ovr ? ["ovr"] : []) : []);
+      if (quiet) {
+        o.loading = false;
+        st.outlook = o;
+        if (st.tab === "outlook" && !settings.panelCollapsed) render();
+        if (o.pinned) S.refreshPin(pinSummary(o));
+        return;
+      }
       const league = await ensureIdentity();
       o.pinned = await S.isPinned(league || `lid${lid}`, pid);
       if (o.pinned) S.refreshPin(pinSummary(o));
@@ -1432,9 +1471,24 @@
   // ======================================================================
   // Background loop: game-day refreshes, drafter, manager
   // ======================================================================
+  // Keep the open player's Outlook and the inline badges current while games are played (by you, BBGM's play
+  // menu or Autopilot): ratings change in preseason progression and during the season.
+  let lastBadgeKey = "", liveBusy = false;
+  function refreshLive(p) {
+    const o = st.outlook;
+    const pk = progressKey(p);
+    // While BBGM is simulating, check at most every 6 s; otherwise as soon as anything moved.
+    if (o && o.result && !o.loading && !liveBusy && o.key !== pk && (!p.gameSim || Date.now() - o.at > 6000)) {
+      liveBusy = true;
+      showPlayer(o.lid, o.pid, { quiet: true }).catch(() => {}).finally(() => { liveBusy = false; });
+    }
+    const bk = keyOf(p);
+    if (bk !== lastBadgeKey && !p.gameSim) { lastBadgeKey = bk; refreshBadges(); }
+  }
+
   let loopBusy = false;
   async function tick() {
-    if (loopBusy || !lidNow() || !needsBridge()) return;
+    if (loopBusy || !lidNow() || (!needsBridge() && !st.outlook)) return;
     loopBusy = true;
     try {
       const p = await B.poll();
@@ -1444,6 +1498,7 @@
       const changed = k !== st.pollKey;
       st.pollKey = k;
       if (changed) { invalidate(); st.current = null; }
+      refreshLive(p);
       if (st.ap.running || p.gameSim || p.drafting) { if (changed) render(); return; }
 
       // Trade screen: evaluate whatever deal is on the table.
@@ -1509,6 +1564,24 @@
     document.querySelectorAll(".bbgm-scout-badge").forEach((b) => b.remove());
   }
 
+  // The game moved on: forget badges for players whose ratings changed, then redraw them.
+  async function refreshBadges() {
+    const lid = lidNow();
+    const mine = [...badgeCache.keys()].filter((k) => k.startsWith(`${lid}:`));
+    if (!lid || !mine.length) return;
+    try {
+      const ctx = await D.load(lid, [...new Set(mine.map((k) => Number(k.split(":")[1])))]);
+      let n = 0;
+      for (const k of mine) {
+        const p = ctx.players.get(Number(k.split(":")[1]));
+        const r = p && p.ratings && p.ratings[p.ratings.length - 1];
+        const s = badgeCache.get(k);
+        if (!s || !r || s.sig !== `${r.season}:${r.ovr}:${r.pot}`) { badgeCache.delete(k); n++; }
+      }
+      if (n) { clearBadges(); scheduleBadges(); }
+    } catch (e) { /* league DB busy; try next time */ }
+  }
+
   let badgeTimer = null, badgeRunning = false;
   function scheduleBadges() {
     clearTimeout(badgeTimer);
@@ -1540,7 +1613,7 @@
           const p = ctx.players.get(pid);
           let s = null;
           if (p && p.tid !== D.PLAYER.RETIRED) {
-            try { s = A.analyze(ctx, p, settings, { nSims: 250, full: false }).summary; } catch (e) { s = null; }
+            try { s = A.analyze(ctx, p, settings, { nSims: 250, full: false }).summary; const r = p.ratings[p.ratings.length - 1]; s.sig = `${r.season}:${r.ovr}:${r.pot}`; } catch (e) { s = null; }
           }
           badgeCache.set(`${lid}:${pid}:${fogKey}`, s);
         }

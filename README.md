@@ -19,7 +19,7 @@ A browser extension for Basketball GM: player development outlooks, a hidden-gem
 | **Development trend** | Actual OVR change over the last 3 seasons vs. what BBGM's progression rules expected, given the player's ratings and age at the time |
 | **Confidence** | 0–100. Goes down when the outcome range is wide, scouting fog applies, the player has little history, or real-player determinism is on |
 
-**OVR and potential predictions.** On any player's page, the Outlook tab predicts OVR for each of the next four seasons (expected value and 80% range) and shows **Scout POT**: the most likely career-high OVR from 1,000 simulations of BBGM's progression rules, next to BBGM's own 20-simulation POT. Hover cards show the next two seasons.
+**OVR and potential predictions.** On any player's page, the Outlook tab predicts OVR for each of the next four seasons (expected value and 80% range) and shows **Scout POT**: the most likely career-high OVR from 1,000 simulations of BBGM's progression rules, next to BBGM's own 20-simulation POT. Hover cards show the next two seasons. An **Attributes** table shows every rating with ▲/▼ changes since last season and since you opened the player, and it refreshes by itself as you play, so progression shows up live.
 
 **Share to Reddit.** Player outlooks and Autopilot run summaries have a **Share to Reddit** button. It opens Reddit's post form (r/BasketballGM by default, changeable in Settings) already filled in; you review it and press Post yourself. The extension never sees your Reddit login.
 

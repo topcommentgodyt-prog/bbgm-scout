@@ -15,6 +15,7 @@ For each step, mark ✅ / ❌ and note what happened.
 
 - [ ] The dock appears in the bottom-right corner; ▼ Close / ▲ Open works; ◐ switches the theme.
 - [ ] Open a player page: the Outlook tab shows numbers (no "Waiting for BBGM…" stuck for more than 10 s).
+- [ ] Stay on a player page and use BBGM's Play menu through to preseason: the Attributes "last checked" time updates while games play, and after progression the Live column shows ▲/▼ changes without reloading.
 - [ ] Hover over a player name in a roster table: a card appears; moving away hides it.
 - [ ] Click a player name in the dock: the page changes to that player **in the same tab, without a full reload**.
 - [ ] The AI, Needs, Plan, FA, Targets and Realism tabs all load.

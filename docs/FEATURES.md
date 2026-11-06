@@ -394,6 +394,11 @@ Choose a mode: **Suggest** (a list of proposed moves, each with Do it / Skip, pl
   - It reacts to the storage change, so no page reload is needed either way. Turning it on resets the route, so the current page is picked up again.
   - The toolbar icon shows an "OFF" badge: the popup sets it, and `background.js` restores it at browser startup.
   - Checked on the live BBGM site: dock, 22 badges and a running Autopilot all stopped; back on, the dock returned with all tabs.
+- **One live copy per page (v3.2.1).** After an extension update or reload, Chrome keeps the old content script running in open tabs, cut off from the extension. Each copy of `content.js` therefore:
+  - announces itself with a `takeover` window message; an older copy that hears it shuts down (clears its timers, observer and listeners, removes its dock, stops Autopilot, ignores storage changes)
+  - checks every 2 s that `chrome.runtime.id` still exists, and shuts itself down if it doesn't
+  
+  Copies from before 3.2.1 lack this, so a tab still running one needs a single refresh after updating.
 
 - **Works with any league:** the extension attaches to whichever BBGM league is open, reads its live state every few seconds, and keeps protections, Realism history and trade timing separate per league.
 - **Pinned:** a comparison table (age, OVR, peak, ceiling, peak age, breakout, bust) with the best value in each column highlighted. Pins refresh when you open that player's page.

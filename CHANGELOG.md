@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.2.1
+
+- **Fixed: the dock could stay on screen with the master switch off.** When the extension is updated or reloaded, Chrome leaves the old copy of Courtside running in tabs that are already open, cut off from the extension, so it never hears the switch. Now the old copy shuts itself down as soon as it's cut off, or when the new copy starts on the same page, so there's only ever one dock and the switch always works.
+- **If you're updating from 3.2.0 or earlier:** refresh any open BBGM tab once after updating. Older versions don't have this fix, so their leftover copy can't remove itself.
+- Checked on the live BBGM site: simulated update (one dock), off (none), on (one), cut off from the extension (none).
+
 ## 3.2.0
 
 - **Master switch.** Click the Courtside icon and flip the switch in the popup's header.

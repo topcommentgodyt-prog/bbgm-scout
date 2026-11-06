@@ -30,8 +30,11 @@
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   const num = (x, d = 1) => (x >= 0 ? "+" : "") + x.toFixed(d);
   const isOn = (v) => v === true || v === "true";
+  // Set when a newer copy of this script takes over the page (see "One live copy per page" at the end).
+  const timers = [];
+  let observer = null, shutDown = false;
   /** Master switch (popup): when off, Courtside shows nothing and does nothing on BBGM pages. */
-  const enabled = () => settings.enabled !== false;
+  const enabled = () => settings.enabled !== false && !shutDown;
   const lidNow = () => { const m = location.pathname.match(LEAGUE_RE); return m ? Number(m[1]) : null; };
   const pidNow = () => { const m = location.pathname.match(PLAYER_RE); return m ? Number(m[2]) : null; };
   const plink = (pid, label) => `<a class="pl" href="/l/${lidNow()}/player/${pid}" title="Open player page">${esc(label)}</a>`;
@@ -562,7 +565,7 @@
   async function render() {
     // While you're dragging the dock, don't rebuild it (Autopilot re-renders constantly, which would drop the drag).
     if (st.dragging) { st.renderPending = true; return; }
-    if (!lidNow() || !enabled()) return removeHost();
+    if (shutDown || !lidNow() || !enabled()) return removeHost();
     ensureHost();
     handlers.clear();
     const sync = await S.status();
@@ -2527,6 +2530,7 @@
   async function init() {
     settings = await S.getSettings();
     S.onChange(async (changes) => {
+      if (shutDown) return; // a newer copy of the script is in charge (see "One live copy per page")
       if (protLid && changes[`protect:${protLid}`]) { await P.loadProtections(protLid); st.trades.ideas = null; st.pending = null; render(); }
       if (!changes.settings) return;
       const prev = settings;
@@ -2554,14 +2558,44 @@
     document.addEventListener("mouseout", onHoverOut, true);
     window.addEventListener("scroll", hideTip, true);
     onRoute();
-    setInterval(onRoute, 500); // BBGM is a single-page app; watch for route changes.
-    setInterval(tick, 3000);
+    timers.push(setInterval(onRoute, 500)); // BBGM is a single-page app; watch for route changes.
+    timers.push(setInterval(tick, 3000));
     tick();
-    new MutationObserver((muts) => {
-      if (settings.badges === "off") return;
+    observer = new MutationObserver((muts) => {
+      if (!enabled() || settings.badges === "off") return;
       if (muts.some((m) => [...m.addedNodes].some((n) => n.nodeType === 1 && !n.classList?.contains("bbgm-scout-badge") && n.id !== "bbgm-scout-host"))) scheduleBadges();
-    }).observe(document.body, { childList: true, subtree: true });
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
   }
+
+  // ======================================================================
+  // One live copy per page. When the extension is updated or reloaded, Chrome leaves the old copy of this script
+  // running in open tabs, cut off from the extension (it never hears the master switch or new settings), while
+  // the new copy starts beside it. The old copy shuts itself down when it notices it's cut off, or when a newer
+  // copy announces itself, so only one dock ever shows and the switch always works.
+  // ======================================================================
+  const INSTANCE = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const connected = () => { try { return !!(ext && ext.runtime && ext.runtime.id); } catch (e) { return false; } };
+  function shutdown() {
+    if (shutDown) return;
+    shutDown = true;
+    st.ap.stopReq = true;
+    timers.forEach(clearInterval);
+    if (observer) observer.disconnect();
+    document.removeEventListener("mouseover", onHoverIn, true);
+    document.removeEventListener("mouseout", onHoverOut, true);
+    window.removeEventListener("scroll", hideTip, true);
+    settings = { ...settings, enabled: false }; // every remaining entry point now does nothing
+    hideTip(); removeHost();
+  }
+  window.addEventListener("message", (e) => {
+    if (e.source === window && e.data && e.data.__courtside === "takeover" && e.data.id !== INSTANCE) shutdown();
+  });
+  timers.push(setInterval(() => { if (!connected()) shutdown(); }, 2000));
+  // Tell any older copy on this page to stop, and clear what it drew, before starting.
+  window.postMessage({ __courtside: "takeover", id: INSTANCE }, location.origin);
+  document.getElementById("bbgm-scout-host")?.remove();
+  document.querySelectorAll(".bbgm-scout-badge").forEach((b) => b.remove());
 
   init();
 })();

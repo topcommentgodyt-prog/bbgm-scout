@@ -76,6 +76,12 @@ Use BBGM's Play menu yourself for these, with the manager in automatic mode:
 - [ ] (v3.0) Owner "Annual performance evaluation" messages are marked read after a season (no "Read new message" in BBGM's Play menu).
 - [ ] (v3.0, in a copy) With "Auto-pick a new team when fired" on: Tools → God Mode off, then `gameOver` true (or get fired). Autopilot takes over one of the teams on BBGM's New Team page and keeps going.
 
+## F0. Master switch (v3.2)
+
+- [ ] Click the toolbar icon, flip the switch to **Off**: the dock, badges and hover cards disappear from the open BBGM tab without a reload, Alt+K does nothing, and the icon shows "OFF". With Autopilot running, it stops.
+- [ ] Restart the browser: the icon still shows "OFF", and nothing appears on BBGM pages.
+- [ ] Switch it back **On**: the dock comes back on the current page with your settings unchanged.
+
 ## F1. Realism automation and free agency (v3.1)
 
 - [ ] Realism tab → Automation → "Apply automatically once a season". Play (or Autopilot) past the playoffs: at the draft lottery the log shows "Realism (automatic, YEAR): …" once, God Mode is on, and **Undo last change** restores the values.

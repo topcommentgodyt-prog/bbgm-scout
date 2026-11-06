@@ -155,6 +155,25 @@
   };
   applyTheme();
 
-  S.onChange(() => { renderPins(); renderReports(); renderSync(); renderFeatures(); applyTheme(); });
+  // ---- Master switch (v3.2): off = nothing on BBGM pages, Autopilot and the manager stop; settings are kept ----
+  async function renderMaster() {
+    const s = await S.getSettings();
+    const on = s.enabled !== false;
+    $("masterSwitch").checked = on;
+    $("masterText").textContent = on ? "On" : "Off";
+    $("offBanner").hidden = on;
+    document.body.classList.toggle("off", !on);
+    try {
+      await ext.action.setBadgeText({ text: on ? "" : "OFF" });
+      if (!on) await ext.action.setBadgeBackgroundColor({ color: "#6b7280" });
+    } catch (e) { /* badge API unavailable */ }
+  }
+  $("masterSwitch").addEventListener("change", async (e) => {
+    await S.saveSettings({ enabled: e.target.checked });
+    renderMaster();
+  });
+  renderMaster();
+
+  S.onChange(() => { renderPins(); renderReports(); renderSync(); renderFeatures(); applyTheme(); renderMaster(); });
   renderSync(); renderPins(); renderReports(); renderSettings();
 })();

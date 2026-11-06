@@ -84,3 +84,17 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   return false;
 });
+
+// Master switch (v3.2): show "OFF" on the toolbar icon while Courtside is turned off, including after a browser
+// restart (badges don't persist on their own). Settings live in sync storage, or local storage without sync.
+async function syncOffBadge() {
+  try {
+    let { settings } = await api.storage.sync.get("settings");
+    if (!settings) ({ settings } = await api.storage.local.get("settings"));
+    const off = !!settings && settings.enabled === false;
+    await api.action.setBadgeText({ text: off ? "OFF" : "" });
+    if (off) await api.action.setBadgeBackgroundColor({ color: "#6b7280" });
+  } catch (e) { /* badge API or storage unavailable */ }
+}
+syncOffBadge();
+api.storage.onChanged.addListener((changes) => { if (changes.settings) syncOffBadge(); });

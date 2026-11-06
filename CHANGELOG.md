@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.2.0
+
+- **Master switch.** Click the Courtside icon and flip the switch in the popup's header.
+  - **Off:** nothing shows on BBGM pages (no dock, hover cards, badges or command bar), Autopilot and the automatic manager stop, and the toolbar icon shows "OFF" (kept across browser restarts).
+  - **On:** brings everything back on the current page, with no reload.
+  - Your settings are kept either way.
+  - Checked on the live BBGM site.
+
 ## 3.1.1
 
 - **Fixed:** in 3.1.0 the header's green "Synced" dot stretched into a long bar. The new layout rule for the sync label also matched the dot, because the dot carries the class `sync` too. It's a 7px dot again. Checked on the live BBGM site.

@@ -389,6 +389,12 @@ Choose a mode: **Suggest** (a list of proposed moves, each with Do it / Skip, pl
 
 ## 13. Popup and settings
 
+- **Master switch (v3.2, `enabled`, default on):** a switch in the popup's header.
+  - When off, `content.js` removes the dock (`render` → `removeHost`), clears badges, hides hover cards and the command bar, stops Autopilot, and skips the background loop (`tick`), routing, badges, hover and Alt+K.
+  - It reacts to the storage change, so no page reload is needed either way. Turning it on resets the route, so the current page is picked up again.
+  - The toolbar icon shows an "OFF" badge: the popup sets it, and `background.js` restores it at browser startup.
+  - Checked on the live BBGM site: dock, 22 badges and a running Autopilot all stopped; back on, the dock returned with all tabs.
+
 - **Works with any league:** the extension attaches to whichever BBGM league is open, reads its live state every few seconds, and keeps protections, Realism history and trade timing separate per league.
 - **Pinned:** a comparison table (age, OVR, peak, ceiling, peak age, breakout, bust) with the best value in each column highlighted. Pins refresh when you open that player's page.
 - **Reports:** saved snapshots with notes, synced, deletable.

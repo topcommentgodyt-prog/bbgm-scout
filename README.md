@@ -25,6 +25,8 @@ A browser extension for Basketball GM: player development outlooks, a hidden-gem
 
 ## Tools (each can be turned on or off in the popup's Features tab)
 
+**Master switch (v3.2):** click the Courtside icon in your toolbar and flip the switch in the popup's header. Off means nothing appears on BBGM pages (no dock, hover cards, badges or command bar), Autopilot and the automatic manager stop, and the icon shows "OFF". Your settings are kept, and switching it back on brings everything back on the page you're on, with no reload.
+
 The dock in the bottom corner of every BBGM league page has one tab per tool. Click its header (or ▼ Close / ▲ Open) to collapse or expand it. The ◐ button switches between Auto, Light and Dark mode; the popup has the same button.
 
 - **Move it anywhere:** press and drag the ball logo / "Courtside" name. It remembers the spot (and works while Autopilot is simming). Double-click the logo to put it back in the corner.

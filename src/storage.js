@@ -53,6 +53,7 @@
     apStopAt: "never", // "never" | "playoffs" | "draft" | "freeAgency"
     apAutoNewTeam: false, // when fired (game over), Autopilot takes over the best team BBGM offers and keeps going
     apAutoReadMessages: true, // Autopilot opens unread inbox messages (owner evaluations) so they don't pile up
+    enabled: true, // master switch (popup): false = nothing on BBGM pages, Autopilot and the manager stop; other settings are kept
     realismAuto: "off", // "off" | "auto": apply the Realism tab's suggestions in the game once a season (turns on God Mode)
     allowOverCap: true, // re-signings / valuable signings may go over the cap where BBGM allows it (soft cap, own players, minimum deals)
     objectives: { titleBy: 0, underTax: false, keepFirsts: false, starDraft: false }, // franchise goals for the manager

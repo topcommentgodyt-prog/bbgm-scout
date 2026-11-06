@@ -30,6 +30,8 @@
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   const num = (x, d = 1) => (x >= 0 ? "+" : "") + x.toFixed(d);
   const isOn = (v) => v === true || v === "true";
+  /** Master switch (popup): when off, Courtside shows nothing and does nothing on BBGM pages. */
+  const enabled = () => settings.enabled !== false;
   const lidNow = () => { const m = location.pathname.match(LEAGUE_RE); return m ? Number(m[1]) : null; };
   const pidNow = () => { const m = location.pathname.match(PLAYER_RE); return m ? Number(m[2]) : null; };
   const plink = (pid, label) => `<a class="pl" href="/l/${lidNow()}/player/${pid}" title="Open player page">${esc(label)}</a>`;
@@ -560,7 +562,7 @@
   async function render() {
     // While you're dragging the dock, don't rebuild it (Autopilot re-renders constantly, which would drop the drag).
     if (st.dragging) { st.renderPending = true; return; }
-    if (!lidNow()) return removeHost();
+    if (!lidNow() || !enabled()) return removeHost();
     ensureHost();
     handlers.clear();
     const sync = await S.status();
@@ -1586,7 +1588,7 @@
     input.focus();
   }
   document.addEventListener("keydown", (e) => {
-    if (!isOn(settings.commandBar) || !lidNow()) return;
+    if (!enabled() || !isOn(settings.commandBar) || !lidNow()) return;
     if (e.altKey && !e.ctrlKey && !e.metaKey && e.code === "KeyK") { e.preventDefault(); openCommandBar(); }
   }, true);
 
@@ -2198,7 +2200,7 @@
 
   let loopBusy = false;
   async function tick() {
-    if (loopBusy || !lidNow() || (!needsBridge() && !st.outlook)) return;
+    if (loopBusy || !enabled() || !lidNow() || (!needsBridge() && !st.outlook)) return;
     loopBusy = true;
     try {
       const p = await B.poll();
@@ -2266,7 +2268,7 @@
     document.head.appendChild(st);
   }
   function badgesWanted() {
-    if (settings.badges === "off") return false;
+    if (!enabled() || settings.badges === "off") return false;
     if (settings.badges === "draft") return DRAFT_RE.test(location.pathname);
     return LEAGUE_RE.test(location.pathname);
   }
@@ -2452,7 +2454,7 @@
   }
 
   function onHoverIn(e) {
-    if (!settings.features.hover) return;
+    if (!enabled() || !settings.features.hover) return;
     const a = e.target.closest && e.target.closest('a[href*="/player/"]');
     if (!a || a.closest("#bbgm-scout-host")) return;
     const m = (a.getAttribute("href") || "").match(PLAYER_RE);
@@ -2506,6 +2508,7 @@
     return fp;
   }
   function onRoute() {
+    if (!enabled()) return; // re-enabling resets lastUrl, so the current page is picked up then
     if (location.href === lastUrl) return;
     lastUrl = location.href;
     if (lidNow() && identityFor !== lidNow()) { st.league = null; ensureIdentity(); }
@@ -2528,6 +2531,17 @@
       if (!changes.settings) return;
       const prev = settings;
       settings = await S.getSettings();
+      // Master switch: off removes everything from the page and stops Autopilot; on brings the current page back.
+      if ((prev.enabled !== false) !== enabled()) {
+        if (!enabled()) {
+          if (st.ap.running) await stopAutopilot();
+          clearBadges(); hideTip();
+          const cmd = document.getElementById("courtside-cmd"); if (cmd) cmd.remove();
+          removeHost();
+          return;
+        }
+        lastUrl = ""; onRoute(); tick();
+      }
       const modelChanged = ["nSims", "respectFog", "bustMode", "bustMargin", "bustOvr", "teamMode", "riskPref"].some((k) => prev[k] !== settings[k]);
       if (modelChanged) { badgeCache.clear(); clearBadges(); invalidate(); st.trades.ideas = null; st.pending = null; }
       if (st.outlook && modelChanged) { lastUrl = ""; onRoute(); }

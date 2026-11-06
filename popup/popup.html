@@ -11,7 +11,13 @@
     <b>Courtside</b>
     <span id="sync" class="sync"><span class="dot"></span><span id="syncText">…</span></span>
     <button id="themeBtn" class="themebtn" title="Switch light or dark mode">◐ Auto</button>
+    <label class="master" title="Master switch: turn Courtside on or off on every BBGM page">
+      <input type="checkbox" id="masterSwitch" aria-label="Courtside on or off">
+      <span class="track"><span class="knob"></span></span>
+      <span id="masterText">On</span>
+    </label>
   </header>
+  <div id="offBanner" class="offbanner" hidden><b>Courtside is off.</b> Nothing shows on BBGM pages, and Autopilot and the manager are stopped. Your settings are kept; switch it back on any time.</div>
   <nav>
     <button data-tab="pins" class="active">Pinned</button>
     <button data-tab="reports">Reports</button>

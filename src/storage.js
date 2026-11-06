@@ -39,6 +39,7 @@
     draftMode: "suggest", // "suggest" | "auto"
     draftTradeUp: false,
     managerMode: "suggest", // "suggest" (you approve each action) | "auto"
+    managerStyle: "standard", // "standard" | "moneyball" (value per dollar: salary priced at the league's market rate)
     manage: { finances: true, roster: true, minutes: true, resign: true, signings: true, releases: true, trades: true },
     financeStyle: "balanced", // "win" | "balanced" | "profit"
     maxContractYears: 0, // 0 = no limit

@@ -129,6 +129,8 @@
     };
     const scored = mine.map((v) => {
       let edge = v.marketPct - v.ourPct + (v.surplus < 0 ? 15 : 0) + walkRisk(v);
+      // Moneyball style: shop the contracts that pay most per point of team rating (overpaid first).
+      if (L.moneyball && v.p.contract) edge += (v.surplus <= -5 ? 25 : 0) + Math.min(20, Math.max(0, (v.p.contract.amount / Math.max(1, L.moneyRate.perPoint)) * 10 - v.summary.ovr / 10));
       if (L.mode === "contend") edge += (rank(v) >= 8 ? 25 : -30) + (v.summary.age <= 23 ? 10 : 0);
       if (L.mode === "rebuild") edge += (v.summary.age >= 27 ? 25 : 0) - (v.summary.age <= 23 ? 25 : 0);
       return { label: LG.name(L, v.p.pid), pids: [v.p.pid], dpids: [], edge };
@@ -232,6 +234,10 @@
       if (Math.abs(dp) >= 100) (dp < 0 ? benefits : costs).push(`${im.payroll[0].season} payroll ${dp < 0 ? "−" : "+"}${fmtMoney(Math.abs(dp))}`);
     }
     if (im.payrollOver > 0) costs.push(`$${im.payrollOver.toFixed(1)}M over your payroll limit across three seasons`);
+    if (L.moneyball && im.payDelta != null && Math.abs(im.payDelta) >= 100) {
+      const line = `Moneyball: ${im.payDelta < 0 ? "saves" : "adds"} ${fmtMoney(Math.abs(im.payDelta))} a season over three seasons, worth ${sgn(im.money || 0, 2)} team rating at this league's ${fmtMoney(L.moneyRate.perPoint)} per point`;
+      (im.payDelta < 0 ? benefits : costs).push(line);
+    }
     if (im.fitWhy && im.fitWhy.length) benefits.push(`fits how you win: ${im.fitWhy.join("; ")}`);
     if (im.fitHurt && im.fitHurt.length) costs.push(`fit: ${im.fitHurt.join("; ")}`);
     const st = L.strategy || { label: L.mode, goal: "" };
@@ -661,6 +667,13 @@
           if (!fit.ok) { walk(v, `doesn't fit the three-season payroll plan (${fit.season} would be ${fmtMoney(fit.over)} over)`); continue; }
         }
         if (tax && L.capInfo.payroll - v.p.contract.amount + ask > tax) { walk(v, "would put you over the luxury tax (your objective)"); continue; }
+        // Moneyball style: don't pay above the market rate for the team rating he adds next season.
+        if (L.moneyball && !young && ask > L.capInfo.minContract + 1) {
+          const others = L.roster(L.snap.userTid).filter((p) => p.pid !== pid).map((p) => LG.ovrAt(L, p.pid, 1));
+          const adds = Math.max(0, LG.teamMov([...others, LG.ovrAt(L, pid, 1)]) - LG.teamMov(others));
+          const fair = adds * L.moneyRate.perPoint;
+          if (ask > fair * 1.1) { walk(v, `Moneyball: asks ${fmtMoney(ask)} for +${adds.toFixed(2)} team rating; the market rate for that is ${fmtMoney(fair)}`); continue; }
+        }
         keep.push({ v, young, surplus });
       }
       // Roster room: players already under contract (including this year's draft picks) plus re-signings.
@@ -716,9 +729,15 @@
       // Win engine: rank free agents by value plus fit (weak areas, synergy), not value alone.
       const rosterPids = L.roster(L.snap.userTid).map((p) => p.pid);
       const fitOf = (fa) => { try { return IN() ? IN().fitGain(L, rosterPids, [...rosterPids, fa.pid]) : null; } catch (e) { return null; } };
+      // Moneyball style: rank by team rating added per dollar, and never pay above the market rate for it
+      // (except to reach the roster minimum).
+      const baseMov = LG.teamMov(rosterPids.map((pid) => LG.ovrAt(L, pid, 0)));
+      const addsOf = (fa) => LG.teamMov([...rosterPids.map((pid) => LG.ovrAt(L, pid, 0)), fa.s.ovr]) - baseMov;
+      const mbKey = (fa) => (Math.max(0, addsOf(fa)) + 0.5 * fa.fit) / Math.max(0.5, fa.ask / 1000);
       const pool = freeAgents(L).map((fa) => { const fg = fitOf(fa); return { ...fa, fit: fg ? fg.fit : 0, fitWhy: fg ? fg.why : [] }; })
-        .sort((a, b) => (b.surplus + 20 * b.fit) - (a.surplus + 20 * a.fit));
+        .sort((a, b) => (L.moneyball ? mbKey(b) - mbKey(a) : (b.surplus + 20 * b.fit) - (a.surplus + 20 * a.fit)));
       for (const fa of pool) {
+        if (L.moneyball && size >= L.capInfo.minRoster && fa.ask > L.capInfo.minContract + 1 && fa.ask > Math.max(0, addsOf(fa)) * L.moneyRate.perPoint * 1.15) continue;
         if (noFA && fa.ask > L.capInfo.minContract) continue;
         if (taxLine && payroll + fa.ask > taxLine) continue;
         if (size >= target && !(fa.surplus > 8 && size < L.capInfo.maxRoster)) continue;
@@ -778,6 +797,9 @@
   function isNecessary(L, im, settings) {
     const min = minFor(L, settings);
     const key = (L.strategy && L.strategy.key) || (L.mode === "contend" ? "contend" : L.mode === "rebuild" ? "rebuild" : "develop");
+    // Moneyball style: savings count in the score, but a salary dump may not make the team clearly worse now
+    // (except when rebuilding, where shedding salary for the future is the point).
+    if (L.moneyball && key !== "rebuild" && im.now < -0.3) return false;
     return SG.tradeOk(key, im, min, L.difficulty);
   }
   function impactText(L, im) {

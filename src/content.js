@@ -320,7 +320,7 @@
         if (k === "apSeasons") v = Math.max(1, Math.min(100, Number(v) || 1));
         settings[k] = v;
         await S.saveSettings({ [k]: v });
-        if (k === "teamMode") { invalidate(); st.trades.ideas = null; st.pending = null; }
+        if (k === "teamMode" || k === "managerStyle") { invalidate(); st.trades.ideas = null; st.pending = null; }
         render();
         return;
       }
@@ -1169,6 +1169,10 @@
     html += `<div class="card"><div class="dash">
       <label>Strategy<select data-set="teamMode" title="Auto picks a strategy from your roster, projections, cap and picks, and re-checks it at the start of the season, mid-season and in the offseason">${stratOpts.map(([k, l]) => `<option value="${k}"${k === curMode ? " selected" : ""}>${l}${k === "auto" && stratNow && stratNow.auto ? ` (${esc(stratNow.label)})` : ""}</option>`).join("")}</select></label>
       ${settings.features.autopilot ? `<label>Seasons<select data-set="apSeasons" title="How many seasons Autopilot plays before it stops (1–100)"${st.ap.running ? " disabled" : ""}>${Array.from({ length: 100 }, (_, i) => i + 1).map((n) => `<option value="${n}"${n === settings.apSeasons ? " selected" : ""}>${n}</option>`).join("")}</select></label>` : "<span></span>"}
+      <label class="full">Style<select data-set="managerStyle" title="Standard: the usual manager. Moneyball: every trade, signing and re-signing is also judged on salary, priced at this league's market rate per point of team rating.">
+        <option value="standard"${settings.managerStyle !== "moneyball" ? " selected" : ""}>Standard</option>
+        <option value="moneyball"${settings.managerStyle === "moneyball" ? " selected" : ""}>Moneyball: value per dollar</option></select></label>
+      ${settings.managerStyle === "moneyball" && L && L.moneyRate ? `<div class="full why" style="margin-top:-4px">Market rate in this league: ${F.fmtMoney(L.moneyRate.perPoint)} per point of team rating (${F.fmtMoney(L.moneyRate.perWin)} per win). Salary added or saved counts at that rate, overpaid contracts are shopped first, and free agents and re-signings above it are passed on.</div>` : ""}
       <div class="full">${stratNow ? `${det("strategy", "ex")}<summary>${esc(stratNow.label)}: ${esc(stratNow.goal)}</summary><ul>${(stratNow.reasons || []).map((r) => `<li>${esc(r)}</li>`).join("")}</ul></details>` : ""}</div>
       <span class="mut">${waiting ? `<span class="warn">${waiting} move${waiting === 1 ? "" : "s"} waiting for your OK</span>` : "No approvals waiting"}</span>
       ${settings.features.autopilot ? `<span style="text-align:right">${st.ap.running ? `<button data-h="${on(() => stopAutopilot())}">Stop</button>` : `<button class="pri" data-h="${on(() => startAutopilot())}">Run Autopilot</button>`}</span>` : "<span></span>"}
@@ -2574,7 +2578,7 @@
         }
         lastUrl = ""; onRoute(); tick();
       }
-      const modelChanged = ["nSims", "respectFog", "bustMode", "bustMargin", "bustOvr", "teamMode", "riskPref"].some((k) => prev[k] !== settings[k]);
+      const modelChanged = ["nSims", "respectFog", "bustMode", "bustMargin", "bustOvr", "teamMode", "riskPref", "managerStyle"].some((k) => prev[k] !== settings[k]);
       if (modelChanged) { badgeCache.clear(); clearBadges(); invalidate(); st.trades.ideas = null; st.pending = null; }
       if (st.outlook && modelChanged) { lastUrl = ""; onRoute(); }
       render();

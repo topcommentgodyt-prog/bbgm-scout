@@ -72,6 +72,13 @@ The dock in the bottom corner of every BBGM league page has one tab per tool. Cl
 
 The manager only makes a trade that clears the automatic trade bar (below) and the strategy's own checks, and that BBGM's trade AI actually accepts. Before the deadline it also shops core players who are unlikely to re-sign (BBGM's own willingness estimate), so they don't leave for nothing, and it shops this year's picks harder in a weak draft class.
 
+**Manager style: Standard or Moneyball (v3.4).** Pick it on the Manager dashboard (or in the popup).
+- **Standard** is the usual manager.
+- **Moneyball** judges every move on value per dollar too. Courtside works out what one point of team rating costs in your league: payroll above minimum-salary players, divided by wins above replacement; the dashboard shows it, e.g. "$15.5M per point".
+  - *Trades:* salary added or saved over the next three seasons counts as team rating at that rate. A trade that saves $2M a season is worth about +0.13 in a $15.5M-per-point league. Overpaid contracts are shopped first. A salary dump may not make the team clearly worse now (more than −0.3), except when rebuilding.
+  - *Free agents:* ranked by rating added per dollar. It passes on anyone asking more than the market rate for what they add (except to reach the roster minimum).
+  - *Re-signing:* lets a player walk when his asking price is more than 10% above the market rate for the rating he adds next season, unless he's young core or protected.
+
 **Automatic trade bar and search timing (v3.3).** These replace the old "Minimum trade improvement" and "Search for trades every N game days" settings; the Manager tab's Advanced settings show the current values and why.
 - *Trade bar* (the minimum improvement a trade must score): Win Now 0.35, Contend 0.45, Develop 0.6, Rebuild 0.7 team-rating points. It's 25% lower in the last 5 games before the deadline, 20% lower for a contender within 1.5 points of the best team, and 25% higher for each trade made in the last 30 game days, so the roster isn't reshuffled constantly. It stays between 0.25 (about the forecasts' error margin) and 1.5. Difficulty adjusts it further.
 - *Search timing:* it searches at once when the roster changes (a trade, signing, release, or a long injury to a top-8 player), and at each new phase or strategy change. In the last week before the deadline it searches every game day. Otherwise it searches every 2 (Win Now), 3 (Contend), 5 (Develop) or 7 (Rebuild) game days, slowing down to at most every 14 after searches that found nothing. It pauses while trades are closed (after the deadline, the playoffs, "No trades" challenge).

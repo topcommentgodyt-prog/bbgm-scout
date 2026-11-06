@@ -241,7 +241,16 @@
       pids.reduce((s, pid) => s + valueOf(pid), 0) +
       dpids.reduce((s, dpid) => { const dp = snap.draftPicks.find((x) => x.dpid === dpid); return s + (dp ? pickValue(dp) : 0); }, 0);
 
-    return { snap, settings, byPid, mode, strategy, risk, d, teams, user, capInfo, pickValue, assetValue, roster, draftSeason, nextSeason, PH, PL, costOf, movNow, mov2, difficulty };
+    // Moneyball market rate: what one point of team rating costs in this league. Marginal, not average: payroll
+    // above a roster of minimum-salary players, divided by wins above a replacement-level team (~20% of games).
+    const games = ga.numGames || 82;
+    const payrolls = snap.teams.map((t) => t.payroll || 0).filter((x) => x > 0);
+    const avgPay = payrolls.length ? payrolls.reduce((a, b) => a + b, 0) / payrolls.length : (ga.salaryCap || 90000);
+    const floorPay = (ga.minRosterSize || 13) * (ga.minContract || 750);
+    const perWin = Math.max(50, (avgPay - floorPay) / Math.max(1, games * 0.3));
+    const moneyRate = { perWin, perPoint: perWin * games * 0.033 }; // $ thousands
+    const moneyball = settings.managerStyle === "moneyball";
+    return { snap, settings, byPid, mode, strategy, risk, d, teams, user, capInfo, pickValue, assetValue, roster, draftSeason, nextSeason, PH, PL, costOf, movNow, mov2, difficulty, moneyRate, moneyball };
   }
 
   /** BBGM's team rating: predicted margin of victory from the top 10 OVRs (regular-season weights). */
@@ -308,9 +317,13 @@
     let fit = 0, fitWhy = [], fitHurt = [];
     const IN = globalThis.BBGMScoutInsights;
     if (IN && IN.fitGain) { try { const fg = IN.fitGain(L, before, after); fit = fg.fit; fitWhy = fg.why; fitHurt = fg.hurt; } catch (e) { /* model incomplete */ } }
-    const parts = { now, future, value, youthNet, picksNet, agingNet, overflow, payrollOver, fit };
+    // Moneyball style: salary added or saved over the next three seasons, priced in team-rating points at this
+    // league's market rate (a $ saved is worth what it would buy on the market).
+    const payDelta = payroll.reduce((s, r) => s + (r.after - r.before), 0) / Math.max(1, payroll.length); // avg $k per season
+    const money = L.moneyball && L.moneyRate ? -payDelta / L.moneyRate.perPoint : 0;
+    const parts = { now, future, value, youthNet, picksNet, agingNet, overflow, payrollOver, fit, money };
     const sc = SG.tradeScore(strat, parts, L.difficulty);
-    return { now, y1, y2, future, value, score: sc.score, scoreParts: sc, youthNet, picksNet, agingNet, rosterAfter, overflow, payroll, payrollOver, fit, fitWhy, fitHurt,
+    return { now, y1, y2, future, value, score: sc.score, scoreParts: sc, youthNet, picksNet, agingNet, rosterAfter, overflow, payroll, payrollOver, fit, fitWhy, fitHurt, money, payDelta,
       strategy: strat, winsNow: now * winsPerMov, winsFuture: future * winsPerMov };
   }
 

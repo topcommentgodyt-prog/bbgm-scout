@@ -161,7 +161,7 @@
     const valueW = 0.004 * (p.value < 0 ? prof.keep : 1);
     // Fit (weak areas, synergy, star power) helps you win now, so it counts more the more the strategy is about now.
     const fitW = 0.4 + 0.6 * s.wNow;
-    const base = s.wNow * p.now + s.wFuture * p.future + valueW * p.value + fitW * (p.fit || 0);
+    const base = s.wNow * p.now + s.wFuture * p.future + valueW * p.value + fitW * (p.fit || 0) + (p.money || 0); // money: Moneyball style only
     const youthPen = s.youth * prof.keep * Math.max(0, p.youthNet) * 0.008;
     const pickPen = s.picks * prof.keep * Math.max(0, p.picksNet) * 0.008;
     const agePen = s.aging * Math.max(0, p.agingNet) * 0.06;

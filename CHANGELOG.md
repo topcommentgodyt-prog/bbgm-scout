@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.4.0
+
+- **Moneyball manager style (optional).** A new **Style** picker on the Manager dashboard (and in the popup) chooses between **Standard** (unchanged) and **Moneyball: value per dollar**.
+  - **Market rate:** Moneyball works out what a point of team rating costs in your league (shown on the dashboard, e.g. "$15.5M per point") and judges every move against it.
+  - **Trades:** salary added or saved counts at that rate, and overpaid contracts are shopped first. A salary dump can't make the team clearly worse now (except when rebuilding).
+  - **Free agents:** ranked by rating per dollar; no paying above the market rate.
+  - **Re-signing:** players asking more than the market rate for what they add walk (young core and protected players excepted).
+  - **Explanations:** every Moneyball move's "Why" shows the dollars and what they're worth.
+- Checked on the live BBGM site with a full Autopilot season in Moneyball style. 44 unit tests pass (1 new).
+
 ## 3.3.0
 
 The "Minimum trade improvement" and "Search for trades every N game days" settings are replaced by automatic logic. The Manager tab's Advanced settings show the current values and the reasons.

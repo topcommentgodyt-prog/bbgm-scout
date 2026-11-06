@@ -96,6 +96,35 @@ test("re-signing: a player whose contract demands weren't read is still decided 
   for (const n of snap.negotiations) assert.ok(decided.has(n), `negotiation ${n} decided`);
 });
 
+test("Moneyball style (v3.4): salary priced at the market rate in trades; Standard unchanged", async () => {
+  const { bridge } = createLeague({ seed: 3 });
+  const ctx = load(bridge);
+  const LGc = ctx.BBGMScoutLeague, F = ctx.BBGMScoutFeatures;
+  const settings = await ctx.BBGMScoutStorage.getSettings();
+  const snap = await bridge.snapshot();
+  const std = await LGc.build(snap, { ...settings, managerStyle: "standard" }, null, {});
+  const mb = await LGc.build(snap, { ...settings, managerStyle: "moneyball" }, null, {});
+  assert.ok(!std.moneyball && mb.moneyball);
+  assert.ok(mb.moneyRate.perPoint > 0 && mb.moneyRate.perPoint > mb.moneyRate.perWin, JSON.stringify(mb.moneyRate));
+  // A trade that takes on salary (their priciest player for my cheapest) costs points only in Moneyball style.
+  const mine = std.roster(snap.userTid).filter((p) => p.contract).sort((a, b) => a.contract.amount - b.contract.amount)[0];
+  const other = snap.teams.find((t) => t.tid !== snap.userTid).tid;
+  const theirs = std.roster(other).filter((p) => p.contract).sort((a, b) => b.contract.amount - a.contract.amount)[0];
+  const teams = [{ tid: snap.userTid, pids: [mine.pid], dpids: [] }, { tid: other, pids: [theirs.pid], dpids: [] }];
+  const a = LGc.tradeImpact(std, teams), b = LGc.tradeImpact(mb, teams);
+  assert.strictEqual(a.money, 0);
+  assert.ok(b.payDelta > 0 && b.money < 0, `payDelta ${b.payDelta} money ${b.money}`);
+  assert.ok(b.score < a.score, "taking on salary scores lower in Moneyball");
+  // A salary dump (my priciest player for their cheapest) is worth points in Moneyball.
+  const myPricey = std.roster(snap.userTid).filter((p) => p.contract).sort((x, y) => y.contract.amount - x.contract.amount)[0];
+  const theirCheap = std.roster(other).filter((p) => p.contract).sort((x, y) => x.contract.amount - y.contract.amount)[0];
+  const dump = LGc.tradeImpact(mb, [{ tid: snap.userTid, pids: [myPricey.pid], dpids: [] }, { tid: other, pids: [theirCheap.pid], dpids: [] }]);
+  assert.ok(dump.payDelta < 0 && dump.money > 0, `payDelta ${dump.payDelta} money ${dump.money}`);
+  // The manager still plans normally, with explanations, in Moneyball style.
+  const acts = await F.managerPlan(mb, { ...settings, managerStyle: "moneyball" }, { lid: 1, includeTrades: true });
+  for (const x of acts.filter((y) => y.kind !== "minutes" && y.kind !== "roster")) assert.ok(x.ex && x.ex.why, `${x.kind}: ${x.text}`);
+});
+
 test("trade bar (v3.3): adapts to strategy, deadline, title race and churn, within 0.25–1.5", async () => {
   const { bridge } = createLeague({ seed: 3 });
   const ctx = load(bridge);

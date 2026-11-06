@@ -463,6 +463,18 @@ Choose a mode: **Suggest** (a list of proposed moves, each with Do it / Skip, pl
 - The coaching effect uses the current budget level; BBGM uses a 3-season average.
 - Trade searches take a few seconds per asset, because every AI team builds an offer.
 
+## 14a. v3.4: Moneyball manager style
+
+- **Setting:** `managerStyle` (`standard` | `moneyball`), on the Manager dashboard and in the popup. Changing it rebuilds the league model.
+- **Market rate:** `league.js` sets `L.moneyRate` with each build.
+  - `perWin` = (average payroll − minRosterSize × minContract) ÷ (0.3 × games): marginal $ per win above a replacement-level team
+  - `perPoint` = perWin × 0.033 × games: $ per point of team rating (MOV)
+- **Trades:** `tradeImpact` adds `money` = −(average payroll change over the next three seasons) ÷ perPoint to the trade score (`strategy.tradeScore`), and `isNecessary` refuses a Moneyball deal with now < −0.3 unless rebuilding. Shopping adds edge for overpaid (surplus ≤ −5) and expensive-per-OVR contracts. Explanations show the dollars and their rating value.
+- **Signings:** sorted by (rating added + 0.5 × fit) per $M. A signing is skipped when the ask exceeds 1.15 × rating added × perPoint (minimum contracts and reaching the roster minimum excepted).
+- **Re-signing:** a player walks when the ask exceeds 1.1 × the market rate for his next-season rating contribution, unless he's young core or Never trade.
+- Standard style is unchanged (`money` is 0).
+- Checked on the live BBGM site: $15.5M per point ($5.7M per win) in a new random league; a Moneyball trade logged "saves $2.0M a season … worth +0.13". There's a unit test for the market rate and the money term in both directions.
+
 ## 14b. v3.1: free agency checker, header
 
 - **Free agency checker** (`features.js` `freeAgencyCheck`):

@@ -12,6 +12,23 @@
   const LG = root.BBGMScoutLeague;
   const S = root.BBGMScoutStorage;
   const PR = () => root.BBGMScoutPlanning; // loaded after this file
+  const IN = () => root.BBGMScoutInsights; // loaded after this file
+  const isOn = (v) => v === true || v === "true";
+  /**
+   * Franchise objectives that rule a trade out: keep first-round picks; stay under the luxury tax.
+   * Returns the reason, or null.
+   */
+  function objectiveBlocks(L, teams, impact) {
+    const obj = (L.settings && L.settings.objectives) || {};
+    if (isOn(obj.keepFirsts) && teams[0].dpids.some((d) => { const dp = L.snap.draftPicks.find((x) => x.dpid === d); return dp && dp.round === 1; })) return "objective: keep first-round picks";
+    if (isOn(obj.underTax) && impact && impact.payroll) {
+      const tax = (L.snap.ga && L.snap.ga.luxuryPayroll) || 0;
+      if (tax && impact.payroll.some((r) => r.after > tax && r.after > r.before)) return "objective: stay under the luxury tax";
+    }
+    return null;
+  }
+  /** BBGM challenge modes that switch whole parts of the manager off (the game would refuse the moves anyway). */
+  const challenge = (L, k) => !!(L.snap.ga && L.snap.ga[k]);
   const SG = root.BBGMScoutStrategy;
   const { PH, PL } = LG;
   const EMPTY_LOOKING_FOR = { positions: {}, skills: {}, assets: { draftPicks: false, prospects: false, bestCurrentPlayers: false } };
@@ -81,9 +98,9 @@
   }
   const gpOfTeam = (t) => (t ? t.won + t.lost + (t.tied || 0) + (t.otl || 0) : 0);
   const clockOf = (L) => SG.gameClock(L.snap.season, L.snap.phase, gpOfTeam(L.user));
-  /** Why a trade is blocked by the move memory (cooldowns, reversals, rejected deals), or null. */
+  /** Why a trade is blocked by the move memory (recently rejected deals), or null. */
   function memoryBlock(L, mem, teams, score) {
-    return SG.tradeBlocked(mem, teams, clockOf(L), { cooldown: Number(L.settings.tradeCooldownDays) || 30, score, min: L.settings.tradeMinMov ?? 0.5 });
+    return SG.tradeBlocked(mem, teams, clockOf(L), { score, min: L.settings.tradeMinMov ?? 0.5 });
   }
 
   // ======================= Trade Helper =======================
@@ -91,6 +108,7 @@
   const tradesAllowed = (L) => L.snap.phase >= 0 && !(L.snap.phase >= PH.AFTER_TRADE_DEADLINE && L.snap.phase <= PH.PLAYOFFS);
 
   async function tradeIdeas(L, { shop = 3, onProgress } = {}) {
+    if (challenge(L, "challengeNoTrades")) return { ideas: [], note: "This league uses BBGM's \"No trades\" challenge mode, so trades are off." };
     if (!tradesAllowed(L)) return { ideas: [], note: "Trades aren't allowed right now (after the deadline or during the playoffs)." };
     const mine = L.roster(L.snap.userTid).filter((p) => !p.untradable).map((p) => L.byPid.get(p.pid)).filter(Boolean);
     const byOvr = [...mine].sort((a, b) => b.summary.ovr - a.summary.ovr);
@@ -99,15 +117,28 @@
     //  contend  -> picks, and prospects outside the rotation, for help now
     //  rebuild  -> veterans the market values more than our timeline does
     //  balanced -> whatever the market overvalues relative to the Scout model
+    const obj = L.settings.objectives || {};
+    const keepFirsts = isOn(obj.keepFirsts);
+    // Expiring this season and unlikely to re-sign: trade him before the deadline rather than lose him for nothing
+    // (contenders keep a starter for the playoff run).
+    const walkRisk = (v) => {
+      const m = v.p.mood, exp = v.p.contract && v.p.contract.exp;
+      if (!m || m.probWilling == null || exp !== L.snap.season || L.snap.phase > PH.REGULAR_SEASON) return 0;
+      if (m.probWilling >= 0.35) return 0;
+      return L.mode === "contend" && rank(v) < 5 ? 0 : 35;
+    };
     const scored = mine.map((v) => {
-      let edge = v.marketPct - v.ourPct + (v.surplus < 0 ? 15 : 0);
+      let edge = v.marketPct - v.ourPct + (v.surplus < 0 ? 15 : 0) + walkRisk(v);
       if (L.mode === "contend") edge += (rank(v) >= 8 ? 25 : -30) + (v.summary.age <= 23 ? 10 : 0);
       if (L.mode === "rebuild") edge += (v.summary.age >= 27 ? 25 : 0) - (v.summary.age <= 23 ? 25 : 0);
       return { label: LG.name(L, v.p.pid), pids: [v.p.pid], dpids: [], edge };
     }).filter((c) => PR().playerLevel(c.pids[0]) !== "never");
     if (L.mode !== "rebuild") {
-      const myPicks = L.snap.draftPicks.filter((d) => d.tid === L.snap.userTid);
-      for (const dp of myPicks.filter((d) => PR().pickLevel(d.dpid) !== "never")) scored.push({ label: LG.pickName(L, dp.dpid), pids: [], dpids: [dp.dpid], edge: L.mode === "contend" ? 40 - dp.round * 10 : 0 });
+      // A weak draft class makes this year's picks better trade chips; a strong one makes them worth keeping.
+      const cls = IN() && IN().draftClass ? IN().draftClass(L) : null;
+      const clsEdge = (dp) => (cls && dp.season === L.draftSeason ? (cls.verdict === "weak" ? 15 : cls.verdict === "strong" ? -20 : 0) : 0);
+      const myPicks = L.snap.draftPicks.filter((d) => d.tid === L.snap.userTid && !(keepFirsts && d.round === 1));
+      for (const dp of myPicks.filter((d) => PR().pickLevel(d.dpid) !== "never")) scored.push({ label: LG.pickName(L, dp.dpid), pids: [], dpids: [dp.dpid], edge: (L.mode === "contend" ? 40 - dp.round * 10 : 0) + clsEdge(dp) });
     }
     const candidates = scored.sort((a, b) => b.edge - a.edge).slice(0, shop);
     const mem = await loadMem();
@@ -120,12 +151,14 @@
       for (const o of offers || []) {
         if (o.summary && o.summary.warning) continue;
         if (PR().assetsLevel(o.pidsUser, o.dpidsUser) === "never") continue; // never give up protected assets
+        if (keepFirsts && (o.dpidsUser || []).some((d) => { const dp = L.snap.draftPicks.find((x) => x.dpid === d); return dp && dp.round === 1; })) continue; // objective: keep first-round picks
         const teams = tradeTeams(L.snap.userTid, o.pidsUser, o.dpidsUser, o.tid, o.pids, o.dpids);
         const rosterAfter = L.capInfo.rosterSize - o.pidsUser.length + o.pids.length;
         const impact = LG.tradeImpact(L, teams);
         const protect = PR().assetsLevel(o.pidsUser, o.dpidsUser);
         const ruleBreak = PR().contractRuleBreak(L, L.settings, { payrollDelta: PR().tradePayrollDelta(L, teams) });
-        ideas.push({ teams, gain: impact.value, impact, rosterAfter, protect, ruleBreak, blocked: memoryBlock(L, mem, teams, impact.score), desc: describeTrade(L, teams) });
+        const premiumBlock = protect === "premium" && !PR().premiumOk(impact, L.settings.tradeMinMov ?? 0.5) ? "includes a Big-return-only asset, and the return isn't big enough" : null;
+        ideas.push({ teams, gain: impact.value, impact, rosterAfter, protect, ruleBreak, blocked: memoryBlock(L, mem, teams, impact.score) || objectiveBlocks(L, teams, impact) || premiumBlock, desc: describeTrade(L, teams) });
       }
     }
     // Rank by improvement on the goal that matters for this team (rating now, future rating, or both).
@@ -164,10 +197,13 @@
       await B.call("main", "tradeCounterOffer");
       const { teams: t } = await B.readTrade();
       if (!t || !t[1] || t[1].tid !== teams[1].tid) return null;
-      if (PR().assetsLevel(t[0].pids, t[0].dpids) !== "available") return null; // never offer protected assets
+      const lv = PR().assetsLevel(t[0].pids, t[0].dpids);
+      if (lv === "never" || lv === "ask") return null; // never offer protected assets
       const same = (a, b) => a.pids.length === b.pids.length && a.dpids.length === b.dpids.length && a.pids.every((x) => b.pids.includes(x)) && a.dpids.every((x) => b.dpids.includes(x));
       if (same(t[0], teams[0]) && same(t[1], teams[1])) return null; // nothing changed
       const impact = LG.tradeImpact(L, t);
+      if (lv === "premium" && !PR().premiumOk(impact, settings.tradeMinMov ?? 0.5)) return null;
+      if (objectiveBlocks(L, t, impact)) return null;
       const rosterAfter = L.capInfo.rosterSize - t[0].pids.length + t[1].pids.length;
       if (!isNecessary(L, impact, settings) || rosterAfter + signed > L.capInfo.maxRoster) return null;
       if (PR().contractRuleBreak(L, settings, { payrollDelta: PR().tradePayrollDelta(L, t) })) return null;
@@ -196,6 +232,8 @@
       if (Math.abs(dp) >= 100) (dp < 0 ? benefits : costs).push(`${im.payroll[0].season} payroll ${dp < 0 ? "−" : "+"}${fmtMoney(Math.abs(dp))}`);
     }
     if (im.payrollOver > 0) costs.push(`$${im.payrollOver.toFixed(1)}M over your payroll limit across three seasons`);
+    if (im.fitWhy && im.fitWhy.length) benefits.push(`fits how you win: ${im.fitWhy.join("; ")}`);
+    if (im.fitHurt && im.fitHurt.length) costs.push(`fit: ${im.fitHurt.join("; ")}`);
     const st = L.strategy || { label: L.mode, goal: "" };
     return { why: `Fits ${st.label}: ${st.goal}. Score ${sgn(im.score, 2)} (threshold ${(L.settings.tradeMinMov ?? 0.5).toFixed(1)}).`, benefits, costs, strategy: st.label, basis: "projected",
       num: { now: Math.round(im.now * 100) / 100, future: Math.round(im.future * 100) / 100, value: Math.round(im.value), score: Math.round(im.score * 100) / 100 } };
@@ -310,8 +348,11 @@
     const year = L.snap.phase === PH.DRAFT ? L.snap.season : L.draftSeason;
     const list = [...L.byPid.values()].filter((v) => v.p.tid === PL.UNDRAFTED && v.p.draft && v.p.draft.year === year);
     const byMarket = [...list].sort((a, b) => b.market - a.market).map((v) => v.p.pid);
+    // Objective "draft a future star": rank by ceiling more than by expected value.
+    const star = isOn((L.settings.objectives || {}).starDraft);
+    const key = (v) => (star ? 0.4 * v.draftTalent + 0.6 * v.upside : v.draftTalent);
     const board = list
-      .sort((a, b) => b.draftTalent - a.draftTalent)
+      .sort((a, b) => key(b) - key(a))
       .map((v, i) => ({ pid: v.p.pid, name: LG.name(L, v.p.pid), s: v.summary, value: v.draftTalent, floor: v.floor, upside: v.upside, ourRank: i + 1, marketRank: byMarket.indexOf(v.p.pid) + 1, gem: Math.round(v.gemScore) }));
     // Tiers: prospects whose forecast ranges overlap with the tier's top player. A prospect stays in the
     // tier if their ceiling (90th pct peak) reaches the leader's median peak and their value is within 20%.
@@ -426,7 +467,10 @@
     // Depth chart: everyone except players out long-term. Short injuries keep their place, so one sprained
     // ankle doesn't reshuffle everyone's minutes for a few days.
     const ranked = mine.filter((v) => !(v.p.injury && v.p.injury.gamesRemaining > 10)).sort((a, b) => shownOvr(b) - shownOvr(a));
-    const R = settings.rotationSize || 10;
+    // Playoff mode: a tighter rotation, stars play more whatever the strategy, and no development minutes or tanking.
+    const playoffs = L.snap.phase === PH.PLAYOFFS;
+    const R = playoffs ? Math.min(8, settings.rotationSize || 10) : settings.rotationSize || 10;
+    const mode = playoffs ? "contend" : L.mode;
     // What a player at depth-chart spot i should get. `cur` adds hysteresis to the contend rule: a star keeps "+"
     // until the gap to the 3rd-best player shrinks below 2 OVR (it needs 4 to get it), so the gap can't flicker.
     const ptAt = (v, i, cur) => {
@@ -435,11 +479,12 @@
       let pt = 1, why = "rotation player";
       if (i >= R + 2 && ranked.length > R + 2) { pt = 0; why = `#${i + 1} on the depth chart; shouldn't play`; }
       else if (i >= R) { pt = 0.75; why = "end of bench"; }
-      if (L.mode === "contend" && i < 2 && ranked[2] && shownOvr(v) - shownOvr(ranked[2]) >= (cur === 1.25 ? 2 : 4)) { pt = 1.25; why = "best player; contending"; }
-      if (L.mode === "rebuild" && i >= 5 && i < R + 2 && age <= 23 && v.summary.ceiling >= 58) {
+      if (playoffs && i >= R) { pt = i >= R + 2 ? 0 : 0.75; why = i >= R + 2 ? "playoffs: outside the 8-man rotation" : "playoffs: end of the rotation"; }
+      if (mode === "contend" && i < 2 && ranked[2] && shownOvr(v) - shownOvr(ranked[2]) >= (cur === 1.25 ? 2 : 4)) { pt = 1.25; why = playoffs ? "best player; playoffs" : "best player; contending"; }
+      if (mode === "rebuild" && i >= 5 && i < R + 2 && age <= 23 && v.summary.ceiling >= 58) {
         pt = 1.25; why = "young, high-upside: more minutes keep the player happy (playing time affects mood, not progression)";
       }
-      if (settings.tank && L.mode === "rebuild" && i < 3 && age >= 26) { pt = 0.75; why = "tanking: resting veterans for better lottery odds"; }
+      if (settings.tank && mode === "rebuild" && i < 3 && age >= 26) { pt = 0.75; why = "tanking: resting veterans for better lottery odds"; }
       return [pt, why];
     };
     const plan = new Map();
@@ -484,7 +529,7 @@
       acts.push({ kind, text, run, pids, sig, approval: !!opts.approval, never: !!opts.never, why: opts.why || "", ex: opts.ex || null });
     };
     const ex = (why, benefits = [], costs = []) => ({ why, benefits, costs, strategy: st.label, basis: "projected" });
-    const lvl = (pid) => PR().playerLevel(pid);
+    const lvl = (pid) => PR().moveLevel(pid); // "Big return only" is a trade rule; for re-signing and cuts it counts as Available
     const rules = (o) => PR().contractRuleBreak(L, settings, o);
     const plan = payrollPlan(L);
     // Players joining the roster this round or soon: re-signings (players negotiating aren't on the roster in
@@ -518,8 +563,29 @@
       // unsigned expiring contract) minus the player's old salary plus the new one. So: let players walk
       // first (that frees their salary), then re-sign best value first while each one still fits.
       const hard = L.capInfo.type === "hard" && L.capInfo.cap;
-      const valueOf = (v) => v.talent - L.costOf(v.p.mood.contractAmount, v.p.contract.exp);
+      // Contract length: BBGM asks the same salary for any length, so length is a free choice. Lock rising young
+      // players up long; keep veterans short (decline risk), and short for anyone 27+ while rebuilding (tradeable).
+      const ga = L.snap.ga || {};
+      const maxLen = Math.max(1, Math.min(Number(ga.maxContractLength) || 5, Number(settings.maxContractYears) || 99));
+      const minLen = Math.max(1, Number(ga.minContractLength) || 1);
+      const lenFor = (v) => {
+        const age = v.summary.age, rising = LG.ovrAt(L, v.p.pid, 2) > v.summary.ovr + 1;
+        let y = age <= 25 && rising ? 5 : age <= 27 ? 3 : age <= 30 ? 2 : 1;
+        if (st.key === "rebuild" && age >= 27) y = 1;
+        return Math.max(minLen, Math.min(maxLen, y));
+      };
+      const expFor = (v) => L.snap.season + lenFor(v);
+      const valueOf = (v) => v.talent - L.costOf(v.p.mood.contractAmount, expFor(v));
       const order = [...L.snap.negotiations].map((pid) => L.byPid.get(pid)).filter((v) => v && v.p.mood).sort((a, b) => valueOf(b) - valueOf(a));
+      // Next season's rotation (projected OVR), to spot players who'd only be bench filler.
+      const R = settings.rotationSize || 10;
+      const nextOvr = L.roster(L.snap.userTid).map((p) => LG.ovrAt(L, p.pid, 1)).sort((a, b) => b - a);
+      const rotationCut = nextOvr[R - 1] ?? 0;
+      // Cheaper replacement already on the market: a signable free agent at least as good for less money.
+      // (Signing is closed during re-signing, but the pool is visible and signable in free agency next.)
+      const fas = challenge(L, "challengeNoFreeAgents") ? [] : freeAgents(L).filter((f) => f.canSign || f.why === "Signing is closed in this phase");
+      const replacementFor = (v) => fas.find((f) => f.s.ovr >= v.summary.ovr && f.ask < v.p.mood.contractAmount * 0.8 && (L.byPid.get(f.pid) || {}).talent >= v.talent * 0.9);
+      const tax = isOn((settings.objectives || {}).underTax) ? Number(ga.luxuryPayroll) || 0 : 0;
       // Anyone whose demands couldn't be read still gets a decision, so BBGM never has to ask before free agency.
       for (const pid of L.snap.negotiations) {
         const v = L.byPid.get(pid);
@@ -545,8 +611,24 @@
         const level = lvl(pid);
         // Young players projected to start are kept unless clearly overpriced: losing them is hard to undo.
         const young = v.summary.age <= 25 && Math.max(LG.ovrAt(L, pid, 1), LG.ovrAt(L, pid, 2)) >= starter && surplus > -0.25 * Math.abs(v.talent) && st.key !== "winnow";
-        if (v.p.mood.willing && (surplus > 0 || level === "never" || young)) keep.push({ v, young, surplus });
-        else walk(v, v.p.mood.willing ? `asking ${fmtMoney(ask)}, more than the player is worth to you` : "unwilling to re-sign");
+        if (!v.p.mood.willing) { walk(v, "unwilling to re-sign"); continue; }
+        if (level === "never") { keep.push({ v, young, surplus }); continue; }
+        if (!(surplus > 0 || young)) { walk(v, `asking ${fmtMoney(ask)}, more than the player is worth to you`); continue; }
+        // Positive value isn't enough on its own: skip deals that only buy bench depth, that a cheaper free agent
+        // replaces, or that break the three-season payroll plan or the luxury-tax objective.
+        const big = surplus >= 8;
+        if (!young && !big && LG.ovrAt(L, pid, 1) < rotationCut - 1) { walk(v, `projected outside next season's ${R}-man rotation; bench depth is cheap`); continue; }
+        const rep = !young && !big ? replacementFor(v) : null;
+        if (rep) { walk(v, `${rep.name} (OVR ${rep.s.ovr}) is available for ${fmtMoney(rep.ask)}`); continue; }
+        // "Allow going over the cap when needed": BBGM lets you exceed a soft cap to re-sign your own players, so
+        // the payroll plan doesn't stop a positive-value re-signing while contending (or a clearly good one).
+        const overOk = isOn(settings.allowOverCap ?? true) && !hard && (st.key === "contend" || st.key === "winnow" || surplus >= 4);
+        if (!young && !big && !hard && !overOk) {
+          const fit = fitsPlan(L, plan, ask, expFor(v));
+          if (!fit.ok) { walk(v, `doesn't fit the three-season payroll plan (${fit.season} would be ${fmtMoney(fit.over)} over)`); continue; }
+        }
+        if (tax && L.capInfo.payroll - v.p.contract.amount + ask > tax) { walk(v, "would put you over the luxury tax (your objective)"); continue; }
+        keep.push({ v, young, surplus });
       }
       // Roster room: players already under contract (including this year's draft picks) plus re-signings.
       // A marginal re-signing that would only be cut later for roster space is skipped (released salary is still owed).
@@ -555,15 +637,17 @@
       const onRoster = L.roster(L.snap.userTid).map((p) => L.byPid.get(p.pid)).filter((v) => v && lvl(v.p.pid) !== "never");
       const worstTalent = onRoster.length ? Math.min(...onRoster.map((v) => v.talent)) : -Infinity;
       for (const { v, young, surplus } of keep) {
-        const pid = v.p.pid, ask = v.p.mood.contractAmount, exp = v.p.contract.exp, level = lvl(pid);
+        const pid = v.p.pid, ask = v.p.mood.contractAmount, exp = expFor(v), level = lvl(pid);
         if (hard && hardPay - v.p.contract.amount + ask > L.capInfo.cap) { walk(v, `re-signing at ${fmtMoney(ask)} would put you over the hard cap`); continue; }
         // Roster full: only re-sign if he's clearly worth more than the player who'd be cut to make room.
         if (size >= L.capInfo.maxRoster && level !== "never" && !young && !(surplus >= 8 && v.talent > worstTalent)) { walk(v, `roster already full (${size}/${L.capInfo.maxRoster} with draft picks); not worth a roster spot`); continue; }
         size++; rosterAdds++;
         hardPay += ask - v.p.contract.amount;
         const broken = rules({ amount: ask, exp, payrollDelta: 0 }) || rules({ exp }); // length limit; re-signing doesn't add new payroll
-        const why = level === "never" ? "protected player" : surplus > 0 ? `value +${surplus.toFixed(1)}` : `young core: projected ${Math.round(LG.ovrAt(L, pid, 2))} OVR in two seasons`;
-        push("resign", `Re-sign ${LG.name(L, pid)} at ${fmtMoney(ask)} through ${exp} (${why})`, async () => {
+        const len = exp - L.snap.season;
+        const overCap = L.capInfo.type === "soft" && L.capInfo.cap && hardPay > L.capInfo.cap;
+        const why = `${level === "never" ? "protected player" : surplus > 0 ? `value +${surplus.toFixed(1)}` : `young core: projected ${Math.round(LG.ovrAt(L, pid, 2))} OVR in two seasons`}; ${len} year${len === 1 ? "" : "s"}: ${v.summary.age <= 25 && len >= 4 ? "locks in a rising player" : len <= 2 ? "short deal limits decline risk" : "mid-length deal"}`;
+        push("resign", `Re-sign ${LG.name(L, pid)} at ${fmtMoney(ask)} through ${exp} (${why}${overCap ? "; goes over the cap, which BBGM allows for your own players" : ""})`, async () => {
           const r = await B.call("main", "acceptContractNegotiation", { pid, amount: ask, exp });
           if (typeof r === "string") throw new Error(r.replace(/<[^>]+>/g, ""));
           return r;
@@ -594,29 +678,41 @@
       const target = phase === PH.FREE_AGENCY || phase === PH.PRESEASON ? L.capInfo.maxRoster - 1 : L.capInfo.minRoster;
       let payroll = L.capInfo.payroll;
       const extraRoom = st.key === "winnow" ? 0.05 * (L.capInfo.cap || 0) : 0;
-      for (const fa of freeAgents(L)) {
+      const noFA = challenge(L, "challengeNoFreeAgents"); // BBGM's challenge: only minimum contracts
+      const taxLine = isOn((settings.objectives || {}).underTax) ? Number(L.snap.ga.luxuryPayroll) || 0 : 0;
+      // Win engine: rank free agents by value plus fit (weak areas, synergy), not value alone.
+      const rosterPids = L.roster(L.snap.userTid).map((p) => p.pid);
+      const fitOf = (fa) => { try { return IN() ? IN().fitGain(L, rosterPids, [...rosterPids, fa.pid]) : null; } catch (e) { return null; } };
+      const pool = freeAgents(L).map((fa) => { const fg = fitOf(fa); return { ...fa, fit: fg ? fg.fit : 0, fitWhy: fg ? fg.why : [] }; })
+        .sort((a, b) => (b.surplus + 20 * b.fit) - (a.surplus + 20 * a.fit));
+      for (const fa of pool) {
+        if (noFA && fa.ask > L.capInfo.minContract) continue;
+        if (taxLine && payroll + fa.ask > taxLine) continue;
         if (size >= target && !(fa.surplus > 8 && size < L.capInfo.maxRoster)) continue;
         if (!fa.canSign || (fa.surplus <= 0 && size >= L.capInfo.minRoster)) continue;
         if (L.capInfo.type !== "none" && payroll + fa.ask > L.capInfo.cap && fa.ask > L.capInfo.minContract + 1) continue;
         // Three-season payroll check: keeps room to re-sign young starters and pay first-round picks.
-        const fit = size < L.capInfo.minRoster ? { ok: true } : fitsPlan(L, plan, fa.ask, fa.exp, extraRoom);
+        // Below the roster minimum, or a clearly valuable player with "go over the cap when needed" on: the
+        // three-season plan doesn't block it (BBGM's own cap rules still apply above).
+        const need = size < L.capInfo.minRoster || (isOn(settings.allowOverCap ?? true) && fa.surplus > 8);
+        const fit = need ? { ok: true } : fitsPlan(L, plan, fa.ask, fa.exp, extraRoom);
         if (!fit.ok) continue;
         const row = plan[0];
         push("sign", `Sign ${fa.name} (OVR ${fa.s.ovr}, ${fmtMoney(fa.ask)} through ${fa.exp}, value +${fa.surplus.toFixed(1)})`, () => sign(L, fa, "", acts.find((a) => a.pids[0] === fa.pid && a.kind === "sign").ex), [fa.pid], {
           sig: `sign:${fa.pid}`,
           ex: ex(size < L.capInfo.minRoster ? `Roster below the minimum (${size}/${L.capInfo.minRoster}).` : `Positive value for ${st.label}; fits the three-season payroll plan.`,
-            [`value ${sgn(fa.surplus)}`, `roster ${size} → ${size + 1}`],
+            [`value ${sgn(fa.surplus)}`, `roster ${size} → ${size + 1}`, ...(fa.fitWhy && fa.fitWhy.length ? [`fits how you win: ${fa.fitWhy.join("; ")}`] : [])],
             [`${fmtMoney(fa.ask)} a year through ${fa.exp}`, row && isFinite(row.limit) ? `${row.season} payroll ${fmtMoney(row.total + fa.ask)} of ${fmtMoney(row.limit)} limit (incl. ${fmtMoney(row.reserve)} reserved)` : ""].filter(Boolean)),
         });
         size++; payroll += fa.ask; signed++; signedPay += fa.ask;
         if (acts.filter((a) => a.kind === "sign").length >= 3) break;
       }
     }
-    if (m.trades && includeTrades && tradesAllowed(L)) {
+    if (m.trades && includeTrades && tradesAllowed(L) && !challenge(L, "challengeNoTrades")) {
       const { ideas } = await tradeIdeas(L, { shop: 3 });
       // Don't take on more players than the roster holds, don't undo recent moves, don't retry rejected deals.
       const hardOk = (x) => L.capInfo.type !== "hard" || !L.capInfo.cap || L.capInfo.payroll + signedPay + PR().tradePayrollDelta(L, x.teams) <= L.capInfo.cap;
-      const best = ideas.find((x) => isNecessary(L, x.impact, settings) && !x.ruleBreak && x.rosterAfter + signed + rosterAdds + pendingDraft <= L.capInfo.maxRoster && hardOk(x) && !memoryBlock(L, mem, x.teams, x.impact.score));
+      const best = ideas.find((x) => isNecessary(L, x.impact, settings) && !x.ruleBreak && x.rosterAfter + signed + rosterAdds + pendingDraft <= L.capInfo.maxRoster && hardOk(x) && !x.blocked && !memoryBlock(L, mem, x.teams, x.impact.score));
       if (best) {
         const why = impactText(L, best.impact);
         const exT = explainTrade(L, best.impact);
@@ -649,7 +745,7 @@
   function isNecessary(L, im, settings) {
     const min = settings.tradeMinMov ?? 0.5;
     const key = (L.strategy && L.strategy.key) || (L.mode === "contend" ? "contend" : L.mode === "rebuild" ? "rebuild" : "develop");
-    return SG.tradeOk(key, im, min);
+    return SG.tradeOk(key, im, min, L.difficulty);
   }
   function impactText(L, im) {
     const f = (x) => `${x >= 0 ? "+" : ""}${x.toFixed(1)}`;
@@ -736,6 +832,6 @@
   root.BBGMScoutFeatures = {
     gemVerdict, gemList, tradeIdeas, proposeTrade, evaluateCurrentTrade, targets, buildOfferFor, freeAgents, sign,
     draftBoard, tierCounts, tradeDownIdeas, draftStep, managerPlan, runActions, tradeDue, isNecessary, impactText, minutesPlan, nextPlayAction, stopHere, tradesAllowed, PT, fmtMoney,
-    explainTrade, payrollPlan, fitsPlan, setLeague, loadMem, saveMem, memoryBlock, clockOf, noteClock,
+    explainTrade, payrollPlan, fitsPlan, setLeague, loadMem, saveMem, memoryBlock, clockOf, noteClock, objectiveBlocks,
   };
 })(globalThis);

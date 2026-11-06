@@ -19,6 +19,7 @@
   const COST_K = 17; // value units per season of a max contract
   const YEARS = 8;
   const SIMS = 150;
+  const REPLACEMENT_OVR = 42; // roughly what a minimum-contract free agent gives you
 
   const fcCache = new Map(); // key -> {summary, fc}
 
@@ -107,9 +108,25 @@
       capRoomPct: ga.salaryCap ? (ga.salaryCap - committedNext) / ga.salaryCap : 0,
       firsts: snap.draftPicks.filter((d) => d.tid === snap.userTid && d.round === 1 && d.season >= draftSeason && d.season <= draftSeason + 1).length,
       youngCore: mine.filter((x) => snap.season - x.p.born.year <= 24 && ovrIn(x.p.pid, 2) >= starterOvr).length,
+      // Gap to the best team (team-rating points, ~2.7 wins each over 82 games): does going all-in buy a real title shot?
+      titleGap: activeTeams.length > 1 ? Math.max(...activeTeams.filter((t) => t !== snap.userTid).map((t) => movNow.get(t))) - (movNow.get(snap.userTid) ?? 0) : null,
+      jobRisk: opts.jobRisk || null,
     };
     const cp = SG.checkpoint(snap.season, snap.phase, gpOf(user), numGames);
-    const res = SG.resolve(settings.teamMode || "auto", features, cp, opts.strategyStored || null);
+    const difficulty = SG.difficultyProfile(ga.difficulty);
+    // A stored decision from before job risk existed would hide a new firing risk until the next checkpoint.
+    const storedIn = opts.strategyStored && features.jobRisk === "high" && !opts.strategyStored.jobRisk ? null : opts.strategyStored || null;
+    const res = SG.resolve(settings.teamMode || "auto", features, cp, storedIn, difficulty);
+    if (res.decision && res.auto) res.decision.jobRisk = features.jobRisk === "high";
+    // Franchise objective "win a title by season X": with the deadline here (or next season), Auto goes for it
+    // if the roster is at least a playoff team; otherwise it says the goal looks out of reach.
+    const obj = settings.objectives || {};
+    if (res.auto && Number(obj.titleBy) > 0) {
+      const left = Number(obj.titleBy) - (snap.phase > PH.PLAYOFFS ? snap.season + 1 : snap.season);
+      if (left >= 0 && left <= 1 && features.rankNow >= 0.55 && res.key !== "winnow") { res.reasons = [...res.reasons, `objective: title by ${obj.titleBy}, so going all-in`]; res.key = features.rankNow >= 0.75 ? "winnow" : "contend"; }
+      else if (left >= 0 && left <= 1 && features.rankNow < 0.55) res.reasons = [...res.reasons, `objective: title by ${obj.titleBy} looks out of reach with this roster`];
+      else if (left > 1 && left <= 3 && res.key === "rebuild") { res.key = "develop"; res.reasons = [...res.reasons, `objective: title by ${obj.titleBy}, so no full rebuild`]; }
+    }
     const strat = SG.STRATEGIES[res.key];
     const mode = strat.mode;
     const strategy = { key: res.key, label: strat.label, goal: strat.goal, mode, auto: res.auto, changed: res.changed, decision: res.decision, reasons: res.reasons, features, cp };
@@ -224,13 +241,13 @@
       pids.reduce((s, pid) => s + valueOf(pid), 0) +
       dpids.reduce((s, dpid) => { const dp = snap.draftPicks.find((x) => x.dpid === dpid); return s + (dp ? pickValue(dp) : 0); }, 0);
 
-    return { snap, settings, byPid, mode, strategy, risk, d, teams, user, capInfo, pickValue, assetValue, roster, draftSeason, nextSeason, PH, PL, costOf, movNow, mov2 };
+    return { snap, settings, byPid, mode, strategy, risk, d, teams, user, capInfo, pickValue, assetValue, roster, draftSeason, nextSeason, PH, PL, costOf, movNow, mov2, difficulty };
   }
 
   /** BBGM's team rating: predicted margin of victory from the top 10 OVRs (regular-season weights). */
-  function teamMov(ovrs) {
+  function teamMov(ovrs, pad = 0) {
     const r = [...ovrs].sort((a, b) => b - a).slice(0, 10);
-    while (r.length < 10) r.push(0);
+    while (r.length < 10) r.push(pad);
     return -102.98 + r.reduce((s, o, i) => s + 0.3334 * Math.exp(-0.1609 * i) * o, 0);
   }
   /** Expected OVR of a player `y` seasons from now (0 = today, as shown to you). */
@@ -251,7 +268,9 @@
     const before = L.snap.players.filter((p) => p.tid === L.snap.userTid).map((p) => p.pid);
     const after = before.filter((pid) => !u.pids.includes(pid)).concat(o.pids);
     const healthy = (pid) => { const v = L.byPid.get(pid); return !(v && v.p.injury && v.p.injury.gamesRemaining > 10); };
-    const mov = (pids, y) => teamMov(pids.filter((pid) => y > 0 || healthy(pid)).map((pid) => ovrAt(L, pid, y)));
+    // Empty roster spots count as a replacement-level player (what a minimum-contract free agent gives you), not
+    // as 0 OVR: otherwise, with a short offseason roster, any added body looks like +10 team rating.
+    const mov = (pids, y) => teamMov(pids.filter((pid) => y > 0 || healthy(pid)).map((pid) => ovrAt(L, pid, y)), REPLACEMENT_OVR);
     const now = mov(after, 0) - mov(before, 0);
     const y1 = mov(after, 1) - mov(before, 1), y2 = mov(after, 2) - mov(before, 2);
     const future = (y1 + y2) / 2;
@@ -285,9 +304,13 @@
     payrollOver = Math.max(0, payrollOver);
 
     const strat = (L.strategy && L.strategy.key) || (L.mode === "contend" ? "contend" : L.mode === "rebuild" ? "rebuild" : "develop");
-    const parts = { now, future, value, youthNet, picksNet, agingNet, overflow, payrollOver };
-    const sc = SG.tradeScore(strat, parts);
-    return { now, y1, y2, future, value, score: sc.score, scoreParts: sc, youthNet, picksNet, agingNet, rosterAfter, overflow, payroll, payrollOver,
+    // Win engine: how the deal changes your weak areas, lineup synergy and (near the top) star power.
+    let fit = 0, fitWhy = [], fitHurt = [];
+    const IN = globalThis.BBGMScoutInsights;
+    if (IN && IN.fitGain) { try { const fg = IN.fitGain(L, before, after); fit = fg.fit; fitWhy = fg.why; fitHurt = fg.hurt; } catch (e) { /* model incomplete */ } }
+    const parts = { now, future, value, youthNet, picksNet, agingNet, overflow, payrollOver, fit };
+    const sc = SG.tradeScore(strat, parts, L.difficulty);
+    return { now, y1, y2, future, value, score: sc.score, scoreParts: sc, youthNet, picksNet, agingNet, rosterAfter, overflow, payroll, payrollOver, fit, fitWhy, fitHurt,
       strategy: strat, winsNow: now * winsPerMov, winsFuture: future * winsPerMov };
   }
 

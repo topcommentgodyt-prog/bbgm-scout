@@ -31,6 +31,8 @@
     "main.relocateVote",
     "main.updateProtectedPlayers",
     "main.startExpansionDraft",
+    // Taking over a new team after being fired, used only by Autopilot when "Auto-pick a new team" is on
+    "main.switchTeam",
     // League settings, only when you press "Apply suggestions" in the Realism tab (keys are checked there)
     "main.updateGameAttributes",
     // Play menu, used only by Autopilot when you turn it on

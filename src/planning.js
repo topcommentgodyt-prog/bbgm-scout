@@ -14,7 +14,8 @@
 
   // ======================= Protections =======================
   // Synced per league: { players: { pid: level }, picks: { dpid: level } }, level = "never" | "ask" (absent = available)
-  const LEVELS = { available: "Available", ask: "Ask first", never: "Never trade" };
+  // "premium": tradable only for a big return (score ≥ 3× your minimum improvement and positive long-term value).
+  const LEVELS = { available: "Available", premium: "Big return only", ask: "Ask first", never: "Never trade" };
   let cache = { lid: null, players: {}, picks: {} };
   const keyFor = (league) => `protect:${league}`; // league = stable league identity (data.js fingerprint)
   async function loadProtections(lid) {
@@ -36,7 +37,13 @@
   /** Strictest protection level among the user's assets in a move. */
   function assetsLevel(pids = [], dpids = []) {
     const lv = [...pids.map(playerLevel), ...dpids.map(pickLevel)];
-    return lv.includes("never") ? "never" : lv.includes("ask") ? "ask" : "available";
+    return lv.includes("never") ? "never" : lv.includes("ask") ? "ask" : lv.includes("premium") ? "premium" : "available";
+  }
+  /** Protection for moves other than trades (re-signing, releases): "Big return only" is about trades, so it counts as Available. */
+  const moveLevel = (pid) => (playerLevel(pid) === "premium" ? "available" : playerLevel(pid));
+  /** A trade that includes a "Big return only" asset must clear 3× the minimum and add long-term value. */
+  function premiumOk(impact, min) {
+    return impact.score >= 3 * Math.max(0.1, min) && impact.value >= 0;
   }
   function protectedNames(L, pids = [], dpids = [], level) {
     return [
@@ -269,7 +276,7 @@
   };
 
   root.BBGMScoutPlanning = {
-    LEVELS, loadProtections, setProtection, playerLevel, pickLevel, assetsLevel, protectedNames,
+    LEVELS, loadProtections, setProtection, playerLevel, pickLevel, assetsLevel, moveLevel, premiumOk, protectedNames, teamProfile, rotation, MOV_W,
     contractYears, contractRuleBreak, tradePayrollDelta, teamNeeds, threeSeasons, injuryStress, CATS, shownRatings, catScore,
   };
 })(globalThis);

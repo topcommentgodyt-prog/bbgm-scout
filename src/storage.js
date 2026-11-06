@@ -33,7 +33,7 @@
     teamMode: "auto", // "auto" (Strategy Brain) | "rebuild" | "develop" | "contend" | "winnow" (legacy "balanced" = develop)
     riskPref: "auto", // "auto" | "conservative" | "balanced" | "upside" (separate from the timeline)
     draftTradeDown: false, // "auto" (follow BBGM's team strategy) | "contend" | "balanced" | "rebuild"
-    features: { hover: true, assistant: true, trades: true, targets: true, freeAgents: true, drafter: false, manager: false, autopilot: false, realism: true, needs: true, plan: true, moneyball: true },
+    features: { hover: true, assistant: true, trades: true, targets: true, freeAgents: true, drafter: false, manager: false, autopilot: false, realism: true, needs: true, plan: true, moneyball: true, office: true, insights: true },
     tradeOnGameDay: true,
     tradeOnTradePage: true,
     draftMode: "suggest", // "suggest" | "auto"
@@ -43,7 +43,6 @@
     financeStyle: "balanced", // "win" | "balanced" | "profit"
     tradeMinMov: 0.5, // minimum team-rating (MOV) improvement for an automatic trade
     tradeEveryDays: 1,
-    tradeCooldownDays: 30, // game days before a newly acquired player can be traded again (big opportunities excepted)
     maxContractYears: 0, // 0 = no limit
     minCapReserve: 0, // $ millions of cap space to keep free
     rotationSize: 10,
@@ -52,6 +51,14 @@
     apSeasons: 1,
     apAutoApprove: true, // Autopilot also makes Ask-first / contract-rule moves itself (Never trade is still respected)
     apStopAt: "never", // "never" | "playoffs" | "draft" | "freeAgency"
+    apAutoNewTeam: false, // when fired (game over), Autopilot takes over the best team BBGM offers and keeps going
+    apAutoReadMessages: true, // Autopilot opens unread inbox messages (owner evaluations) so they don't pile up
+    allowOverCap: true, // re-signings / valuable signings may go over the cap where BBGM allows it (soft cap, own players, minimum deals)
+    objectives: { titleBy: 0, underTax: false, keepFirsts: false, starDraft: false }, // franchise goals for the manager
+    compactMode: false, // mini panel with three metrics
+    panelPos: null, // { x, y } once you drag the dock somewhere (null = its corner)
+    compactMetrics: ["rating", "record", "job"], // which metrics the compact panel shows
+    commandBar: true, // Alt+K opens the command bar
     claudeEnabled: false,
     claudeModel: "claude-opus-5-5",
     redditSub: "BasketballGM", // subreddit the "Share to Reddit" buttons open (you still review and post)

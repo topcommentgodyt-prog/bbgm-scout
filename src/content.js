@@ -14,6 +14,7 @@
   const P = globalThis.BBGMScoutPlanning;
   const SG = globalThis.BBGMScoutStrategy;
   const MB = globalThis.BBGMScoutMoneyball;
+  const IN = globalThis.BBGMScoutInsights;
   const ext = globalThis.chrome || globalThis.browser;
 
   const PLAYER_RE = /\/l\/(\d+)\/player\/(\d+)/;
@@ -28,6 +29,7 @@
   const pct = (x) => (x == null ? "–" : `${Math.round(x * 100)}%`);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   const num = (x, d = 1) => (x >= 0 ? "+" : "") + x.toFixed(d);
+  const isOn = (v) => v === true || v === "true";
   const lidNow = () => { const m = location.pathname.match(LEAGUE_RE); return m ? Number(m[1]) : null; };
   const pidNow = () => { const m = location.pathname.match(PLAYER_RE); return m ? Number(m[2]) : null; };
   const plink = (pid, label) => `<a class="pl" href="/l/${lidNow()}/player/${pid}" title="Open player page">${esc(label)}</a>`;
@@ -105,6 +107,8 @@
     plan: ico('<rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 6.5h12M5.5 1.5v3M10.5 1.5v3"/>'),
     moneyball: ico('<circle cx="8" cy="8" r="6.2"/><path d="M10 5.8c-.5-.7-1.2-1-2-1-1.2 0-2 .6-2 1.5 0 2 4 1.2 4 3.3 0 .9-.9 1.6-2.1 1.6-.9 0-1.7-.4-2.1-1.1M8 3.5v1.3M8 11.2v1.3"/>'),
     realism: ico('<path d="M2 13.5h12M3.5 13.5V8M6.5 13.5V5M9.5 13.5V9.5M12.5 13.5V3"/>'),
+    office: ico('<rect x="2" y="5" width="12" height="9" rx="1.5"/><path d="M5.5 5V3.5A1.5 1.5 0 0 1 7 2h2a1.5 1.5 0 0 1 1.5 1.5V5M2 9h12"/>'),
+    insights: ico('<circle cx="7" cy="7" r="4.5"/><path d="M10.4 10.4L14 14M5 7.5l1.5-2 1.5 2 1.5-2.5"/>'),
   };
   const TABS = [
     ["outlook", "Outlook", () => true],
@@ -114,6 +118,8 @@
     ["fa", "FA", () => settings.features.freeAgents],
     ["draft", "Draft", () => settings.features.drafter],
     ["manager", "Manager", () => settings.features.manager || settings.features.autopilot],
+    ["office", "Office", () => settings.features.office !== false],
+    ["insights", "Insights", () => settings.features.insights !== false],
     ["needs", "Needs", () => settings.features.needs],
     ["plan", "Plan", () => settings.features.plan],
     ["moneyball", "Moneyball", () => settings.features.moneyball],
@@ -136,7 +142,10 @@
       const snap = await B.snapshot();
       const sid = st.league || `lid${lidNow()}`;
       const stored = await S.getStrategy(sid);
-      const L = await LG.build(snap, settings, (f) => { st.buildMsg = `Analyzing players… ${Math.round(f * 100)}%`; render(); }, { strategyStored: stored });
+      // Job on the line? (owner mood projection; read-only) Auto won't pick a long rebuild then.
+      let jobRisk = null;
+      try { const js = IN && IN.jobSecurity(null, await loadOwner()); jobRisk = js && (js.risk === "high" || js.risk === "fired") ? "high" : null; } catch (e) { /* ignore */ }
+      const L = await LG.build(snap, settings, (f) => { st.buildMsg = `Analyzing players… ${Math.round(f * 100)}%`; render(); }, { strategyStored: stored, jobRisk });
       F.setLeague(lidNow()); F.noteClock(L);
       const dec = L.strategy.auto && L.strategy.decision;
       if (dec && (!stored || stored.cp !== dec.cp || stored.key !== dec.key)) {
@@ -148,6 +157,7 @@
         }
       }
       st.L = L; st.LKey = k;
+      afterBuild(L).then(() => { if (st.tab === "office" || st.tab === "manager" || isOn(settings.compactMode)) render(); }).catch(() => {});
       if (settings.features.realism) refreshRealism(L).then(() => { if (st.tab === "realism") render(); });
       return L;
     })();
@@ -202,6 +212,54 @@
     };
     shadow.addEventListener("pointerup", endDrag);
     shadow.addEventListener("pointercancel", endDrag);
+    // ---- Move the whole dock: press and drag the logo / name in the header ----
+    let move = null;
+    shadow.addEventListener("pointerdown", (e) => {
+      const grip = e.target.closest && e.target.closest(".grip");
+      if (!grip || e.button !== 0) return;
+      const w = shadow.querySelector(".wrap"), r = w.getBoundingClientRect();
+      move = { x: e.clientX, y: e.clientY, left: r.left, top: r.top, moved: false, id: e.pointerId, w };
+      st.dragging = true; // hold re-renders from the moment you press, so the element under your mouse stays put
+    });
+    shadow.addEventListener("pointermove", (e) => {
+      if (!move || e.pointerId !== move.id) return;
+      const dx = e.clientX - move.x, dy = e.clientY - move.y;
+      move.w = shadow.querySelector(".wrap") || move.w;
+      if (!move.moved && Math.hypot(dx, dy) > 4) { move.moved = true; move.w.classList.add("moving"); try { move.w.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ } }
+      if (!move.moved) return;
+      const r = move.w.getBoundingClientRect();
+      const x = Math.max(4, Math.min(window.innerWidth - r.width - 4, move.left + dx));
+      const y = Math.max(4, Math.min(window.innerHeight - 44, move.top + dy));
+      Object.assign(move.w.style, { left: `${x}px`, top: `${y}px`, right: "auto", bottom: "auto" });
+      e.preventDefault();
+    });
+    const endMove = async () => {
+      if (!move) return;
+      const m = move; move = null;
+      if (!m.moved) { // a plain click: the header's open/close still works
+        st.dragging = false;
+        if (st.renderPending) { st.renderPending = false; setTimeout(render, 0); }
+        return;
+      }
+      m.w.classList.remove("moving");
+      suppressClick = true; setTimeout(() => { suppressClick = false; }, 0);
+      const r = m.w.getBoundingClientRect();
+      settings.panelPos = { x: Math.round(r.left), y: Math.round(r.top) };
+      st.dragging = false;
+      if (st.renderPending) { st.renderPending = false; render(); } else placeDock();
+      await S.saveSettings({ panelPos: settings.panelPos });
+    };
+    shadow.addEventListener("pointerup", endMove);
+    shadow.addEventListener("pointercancel", endMove);
+    // Released outside the dock (or outside the window): still end the drag, so re-rendering never stays paused.
+    window.addEventListener("pointerup", endMove, true);
+    window.addEventListener("blur", endMove);
+    shadow.addEventListener("dblclick", async (e) => {
+      if (!(e.target.closest && e.target.closest(".grip"))) return;
+      settings.panelPos = null;
+      await S.saveSettings({ panelPos: null });
+      render();
+    });
     shadow.addEventListener("scroll", (e) => { if (e.target && e.target.tagName === "NAV") updateNavArrows(); }, true);
     shadow.addEventListener("keydown", (e) => {
       const tab = e.target.closest && e.target.closest('nav [role="tab"]');
@@ -229,10 +287,30 @@
     }, true);
     shadow.addEventListener("input", (e) => { if (e.target.id === "askq") st.ask.q = e.target.value; });
     shadow.addEventListener("change", async (e) => {
+      const q = e.target.closest("[data-q]");
+      if (q) { st.queueSel = st.queueSel || new Set(); if (q.checked) st.queueSel.add(q.dataset.q); else st.queueSel.delete(q.dataset.q); render(); return; }
+      const ob = e.target.closest("[data-obj]");
+      if (ob) {
+        const k = ob.dataset.obj;
+        const v = ob.type === "checkbox" ? ob.checked : Math.max(0, Number(ob.value) || 0);
+        settings.objectives = { ...(settings.objectives || {}), [k]: v };
+        await S.saveSettings({ objectives: settings.objectives });
+        invalidate(); st.pending = null; st.trades.ideas = null; render();
+        return;
+      }
+      const cm = e.target.closest("[data-cmetric]");
+      if (cm) {
+        const cur = new Set(settings.compactMetrics || []);
+        if (cm.checked) cur.add(cm.dataset.cmetric); else cur.delete(cm.dataset.cmetric);
+        settings.compactMetrics = [...cur].slice(0, 3);
+        await S.saveSettings({ compactMetrics: settings.compactMetrics });
+        render();
+        return;
+      }
       const ctl = e.target.closest("[data-set]");
       if (ctl) {
         const k = ctl.dataset.set;
-        let v = ctl.type === "number" ? Number(ctl.value) : ctl.value;
+        let v = ctl.type === "checkbox" ? ctl.checked : ctl.type === "number" ? Number(ctl.value) : ctl.value;
         if (ctl.type === "number") v = Math.max(Number(ctl.min || -1e9), Math.min(Number(ctl.max || 1e9), Number.isFinite(v) ? v : 0));
         if (k === "apSeasons") v = Math.max(1, Math.min(100, Number(v) || 1));
         settings[k] = v;
@@ -292,6 +370,10 @@
   header b { font-size:13.5px; letter-spacing:.9px; text-transform:uppercase; font-weight:800; text-shadow:0 1px 0 rgba(0,0,0,.18); }
   header .ball { width:18px; height:18px; flex:none; filter:drop-shadow(0 1px 1px rgba(0,0,0,.25)); }
   header .chip { background:rgba(255,255,255,.22); color:#fff; }
+  header .grip { display:flex; align-items:center; gap:8px; cursor:grab; touch-action:none; padding:2px 4px 2px 0; border-radius:8px; }
+  header .grip:hover { background:rgba(255,255,255,.1); }
+  .wrap.moving { transition:none; opacity:.92; box-shadow:0 24px 50px -10px rgba(0,0,0,.45); } .wrap.moving header .grip { cursor:grabbing; }
+  .wrap.moving, .wrap.moving * { user-select:none; }
   .sync { margin-left:auto; font-size:11px; color:rgba(255,255,255,.9); display:flex; align-items:center; gap:4px; }
   .dot { width:7px; height:7px; border-radius:50%; background:#7dffb0; box-shadow:0 0 0 2px rgba(255,255,255,.25); } .dot.local { background:#ffd27a; } .dot.error { background:#ff9a8c; }
   header button { background:rgba(255,255,255,.16); border-color:rgba(255,255,255,.35); color:#fff; }
@@ -414,6 +496,7 @@
   details > summary:hover { color:var(--acc); }
   .adv { display:grid; grid-template-columns:1fr; gap:7px; margin-top:7px; } .adv label { display:flex; justify-content:space-between; gap:8px; align-items:center; font-size:12px; }
   .adv input[type=number] { width:64px; }
+  .adv label.row { justify-content:flex-start; } .adv label.row input { margin:0; }
   .ex { font-size:11px; color:var(--mut); margin:2px 0 4px; } .ex b { color:var(--fg); font-weight:700; } .ex ul { margin:2px 0 0 14px; padding:0; }
   .sum td, .sum th { font-size:11.5px; }
   select.prot.never { border-color:var(--bad); } select.prot.ask { border-color:var(--warn); }
@@ -423,6 +506,36 @@
   .bar { height:6px; border-radius:3px; background:var(--line); position:relative; overflow:hidden; margin-top:3px; }
   .bar i { position:absolute; left:0; top:0; bottom:0; background:linear-gradient(90deg, var(--acc), var(--acc2)); border-radius:3px; }
   .bar.weak i { background:var(--bad); }
+  /* Cleanup: collapsible cards read like cards, consistent spacing, quieter secondary text */
+  details.card > summary { color:var(--fg); font-size:12.5px; font-weight:600; list-style:none; display:flex; align-items:center; gap:6px; }
+  details.card > summary::before { content:"▸"; color:var(--acc); font-size:11px; transition:transform .15s; }
+  details.card[open] > summary::before { transform:rotate(90deg); }
+  details.card > summary::-webkit-details-marker { display:none; }
+  .card.live { border-left:4px solid var(--acc); }
+  .card .rows > div { padding:3px 0; }
+  .card table { margin-top:4px; }
+  .body > .h:first-child, .body > .card:first-child { margin-top:0; }
+  .why { line-height:1.45; }
+  .chips { display:flex; flex-wrap:wrap; gap:4px; margin:0 0 6px; } .chips button { padding:2px 8px; }
+  input.q { vertical-align:middle; margin:0 2px 0 0; accent-color:var(--acc); }
+  .meter { height:10px; border-radius:5px; background:linear-gradient(90deg, var(--bad), var(--warn) 45%, var(--good)); position:relative; margin:6px 0 2px; }
+  .meter b { position:absolute; top:-3px; width:4px; height:16px; margin-left:-2px; border-radius:2px; background:var(--fg); box-shadow:0 0 0 2px var(--bg); }
+  .dec { display:flex; gap:8px; align-items:baseline; padding:5px 0; border-bottom:1px dashed var(--line); font-size:12px; }
+  .dec .when { flex:none; min-width:62px; font-weight:800; color:var(--mut); font-size:10.5px; text-transform:uppercase; letter-spacing:.5px; }
+  .dec.urgent .when { color:var(--bad); }
+  .lineup { display:grid; grid-template-columns:1fr 1fr; gap:6px; } .lineup > div { background:var(--chip); border-radius:8px; padding:6px 8px; font-size:11.5px; }
+  .ok { color:var(--good); font-weight:700; } .no { color:var(--bad); font-weight:700; }
+  /* Compact mode: a mini panel with three metrics */
+  .wrap.compact { width:250px; } .wrap.compact .navwrap { display:none; }
+  .mini { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; text-align:center; }
+  .mini div { background:var(--board); color:#cfd8e6; border-radius:9px; padding:6px 2px; } .mini small { display:block; font-size:9px; text-transform:uppercase; letter-spacing:1px; color:#8fa0b8; font-weight:700; }
+  .mini strong { display:block; font-size:16px; font-weight:800; color:var(--boardfg); font-variant-numeric:tabular-nums; }
+  /* Command bar */
+  .cmd { position:fixed; inset:0; z-index:2147483001; background:rgba(0,0,0,.35); display:flex; align-items:flex-start; justify-content:center; padding-top:12vh; font:13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  .cmd .box { width:min(520px, calc(100vw - 32px)); background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); overflow:hidden; }
+  .cmd input { width:100%; box-sizing:border-box; border:0; border-bottom:1px solid var(--line); padding:12px 14px; font:inherit; font-size:15px; background:var(--card); color:var(--fg); outline:none; }
+  .cmd ul { list-style:none; margin:0; padding:4px; max-height:50vh; overflow:auto; } .cmd li { padding:7px 10px; border-radius:8px; cursor:pointer; display:flex; justify-content:space-between; gap:8px; }
+  .cmd li.sel, .cmd li:hover { background:color-mix(in srgb, var(--acc) 16%, var(--bg)); } .cmd li small { color:var(--mut); }
   @media (prefers-reduced-motion: reduce) { * { transition:none !important; } }
   `;
 
@@ -434,6 +547,8 @@
   }
 
   async function render() {
+    // While you're dragging the dock, don't rebuild it (Autopilot re-renders constantly, which would drop the drag).
+    if (st.dragging) { st.renderPending = true; return; }
     if (!lidNow()) return removeHost();
     ensureHost();
     handlers.clear();
@@ -452,7 +567,8 @@
       return `<button role="tab" aria-selected="${st.tab === id}" class="${st.tab === id ? "active" : ""}" data-tab="${id}" data-h="${on(() => { st.tab = id; render(); onTabOpen(id); })}"><span class="ti" aria-hidden="true">${TAB_ICON[id] || ""}</span>${label}${n ? `<span class="n">${n}</span>` : ""}</button>`;
     }).join("")}</nav><button class="navarr next" data-navscroll="1" tabindex="-1" aria-label="Scroll tabs right">›</button></div>` : "";
     let body = "";
-    try { body = bodyFor(st.tab); } catch (e) { body = `<div class="msg">${esc(e.message)}</div>`; }
+    const compact = isOn(settings.compactMode) && !settings.panelCollapsed;
+    try { body = compact ? compactBody() : bodyFor(st.tab); } catch (e) { body = `<div class="msg">${esc(e.message)}</div>`; }
     const prevNav = shadow.querySelector("nav");
     const navScroll = prevNav ? prevNav.scrollLeft : 0;
     const prevBody = shadow.querySelector(".body");
@@ -460,8 +576,8 @@
     st.lastTab = st.tab;
     const focusKey = shadow.activeElement && shadow.activeElement.dataset ? shadow.activeElement.dataset.set : null;
     shadow.innerHTML = `<style>${CSS}</style>
-      <div class="wrap ${settings.panelSide === "left" ? "left" : "right"}${isDark() ? " dark" : ""}${settings.panelCollapsed ? " collapsed" : ""}">
-        <header data-h="${hdr}" title="Click to ${settings.panelCollapsed ? "open" : "close"}"><svg class="ball" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10.5" fill="#fff" fill-opacity=".95"/><circle cx="12" cy="12" r="10.5" fill="none" stroke="#7a2d06" stroke-width="1.3"/><path d="M1.5 12h21M12 1.5v21M4.6 4.6c3.6 3.2 3.6 11.6 0 14.8M19.4 4.6c-3.6 3.2-3.6 11.6 0 14.8" fill="none" stroke="#7a2d06" stroke-width="1.3"/></svg><b>Courtside</b><button class="sm theme" data-h="${themeBtn}" title="Theme: ${THEME_LABEL[settings.theme] || "Auto"} (click to change)" aria-label="Switch light or dark mode">${THEME_ICON[settings.theme] || THEME_ICON.auto}</button>${st.ap.running ? `<span class="chip">Autopilot</span>` : ""}<span class="sync" title="${esc(sync.detail)}"><span class="dot ${sync.mode}"></span>${esc(sync.text)}</span><button class="sm caret" data-h="${hdr}" title="${settings.panelCollapsed ? "Open" : "Close"} Courtside" aria-label="${settings.panelCollapsed ? "Open" : "Close"} Courtside" aria-expanded="${!settings.panelCollapsed}">${settings.panelCollapsed ? "▲ Open" : "▼ Close"}</button></header>
+      <div class="wrap ${settings.panelSide === "left" ? "left" : "right"}${isDark() ? " dark" : ""}${settings.panelCollapsed ? " collapsed" : ""}${compact ? " compact" : ""}">
+        <header data-h="${hdr}" title="Click to ${settings.panelCollapsed ? "open" : "close"}"><span class="grip" title="Drag to move Courtside (double-click to reset)"><svg class="ball" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10.5" fill="#fff" fill-opacity=".95"/><circle cx="12" cy="12" r="10.5" fill="none" stroke="#7a2d06" stroke-width="1.3"/><path d="M1.5 12h21M12 1.5v21M4.6 4.6c3.6 3.2 3.6 11.6 0 14.8M19.4 4.6c-3.6 3.2-3.6 11.6 0 14.8" fill="none" stroke="#7a2d06" stroke-width="1.3"/></svg><b>Courtside</b></span><button class="sm theme" data-h="${themeBtn}" title="Theme: ${THEME_LABEL[settings.theme] || "Auto"} (click to change)" aria-label="Switch light or dark mode">${THEME_ICON[settings.theme] || THEME_ICON.auto}</button>${st.ap.running ? `<span class="chip">Autopilot</span>` : ""}<span class="sync" title="${esc(sync.detail)}"><span class="dot ${sync.mode}"></span>${esc(sync.text)}</span><button class="sm caret" data-h="${hdr}" title="${settings.panelCollapsed ? "Open" : "Close"} Courtside" aria-label="${settings.panelCollapsed ? "Open" : "Close"} Courtside" aria-expanded="${!settings.panelCollapsed}">${settings.panelCollapsed ? "▲ Open" : "▼ Close"}</button></header>
         ${nav}
         <div class="body">${st.flash ? `<div class="banner acc">${esc(st.flash)}</div>` : ""}${body}</div>
       </div>`;
@@ -476,7 +592,20 @@
       updateNavArrows();
     }
     if (focusKey) { const el = shadow.querySelector(`[data-set="${focusKey}"]`); if (el) el.focus(); }
+    placeDock();
   }
+  /** Puts the dock where you dragged it (kept on screen), or in its corner. */
+  function placeDock() {
+    const w = shadow && shadow.querySelector(".wrap");
+    if (!w) return;
+    const pos = settings.panelPos;
+    if (!pos || !Number.isFinite(pos.x) || !Number.isFinite(pos.y)) { w.style.left = w.style.top = w.style.right = w.style.bottom = ""; return; }
+    const r = w.getBoundingClientRect();
+    const x = Math.max(4, Math.min(window.innerWidth - Math.min(r.width, window.innerWidth) - 4, pos.x));
+    const y = Math.max(4, Math.min(window.innerHeight - 44, pos.y)); // the header always stays reachable
+    Object.assign(w.style, { left: `${x}px`, top: `${y}px`, right: "auto", bottom: "auto", maxHeight: `${Math.max(160, window.innerHeight - y - 12)}px` });
+  }
+  window.addEventListener("resize", () => placeDock());
 
   function bodyFor(tab) {
     switch (tab) {
@@ -491,6 +620,8 @@
       case "needs": return needsBody();
       case "moneyball": return moneyballBody();
       case "plan": return planBody();
+      case "office": return officeBody();
+      case "insights": return insightsBody();
       default: return "";
     }
   }
@@ -1026,14 +1157,17 @@
       <label>Manager mode<select data-set="managerMode"><option value="suggest"${settings.managerMode !== "auto" ? " selected" : ""}>Suggest (you approve)</option><option value="auto"${settings.managerMode === "auto" ? " selected" : ""}>Fully automatic</option></select></label>
       ${settings.features.autopilot ? `<label>Autopilot step<select data-set="apStep"><option value="day"${settings.apStep !== "week" ? " selected" : ""}>A day</option><option value="week"${settings.apStep === "week" ? " selected" : ""}>A week</option></select></label>
       <label>Stop at checkpoint<select data-set="apStopAt">${[["never", "Never"], ["playoffs", "Playoffs"], ["draft", "Draft"], ["freeAgency", "Free agency"]].map(([k, l]) => `<option value="${k}"${settings.apStopAt === k ? " selected" : ""}>${l}</option>`).join("")}</select></label>` : ""}
-      ${settings.features.autopilot ? `<label title="Fully automatic: Autopilot also makes moves involving Ask-first players or picks, and moves that break your contract rules. Never-trade players are still never traded, cut or let go.">Moves that need your OK<select data-set="apAutoApprove"><option value="true"${settings.apAutoApprove !== false && settings.apAutoApprove !== "false" ? " selected" : ""}>Autopilot makes them</option><option value="false"${settings.apAutoApprove === false || settings.apAutoApprove === "false" ? " selected" : ""}>Pause for me</option></select></label>` : ""}
+      ${settings.features.autopilot ? `<label title="Fully automatic: Autopilot also makes moves involving Ask-first players or picks, and moves that break your contract rules. Never-trade players are still never traded, cut or let go.">Moves that need your OK<select data-set="apAutoApprove"><option value="true"${settings.apAutoApprove !== false && settings.apAutoApprove !== "false" ? " selected" : ""}>Autopilot makes them</option><option value="false"${settings.apAutoApprove === false || settings.apAutoApprove === "false" ? " selected" : ""}>Pause for me</option></select></label>
+      <label class="row" title="When BBGM fires you, Autopilot takes over the strongest team BBGM offers (the worst records, or any team in God Mode) and keeps playing. Off: Autopilot stops so you can choose."><input type="checkbox" data-set="apAutoNewTeam"${isOn(settings.apAutoNewTeam) ? " checked" : ""}> Auto-pick a new team when fired</label>
+      <label class="row" title="Opens unread inbox messages (like the owner's Annual performance evaluation) during and after the run, so you don't have to click through them before BBGM lets you play again."><input type="checkbox" data-set="apAutoReadMessages"${isOn(settings.apAutoReadMessages) ? " checked" : ""}> Auto-read owner messages</label>` : ""}
       <label title="Minimum trade score in team-rating points (1 point ≈ 2.7 wins over 82 games)">Minimum trade improvement<input type="number" data-set="tradeMinMov" min="0.1" max="10" step="0.1" value="${settings.tradeMinMov ?? 0.5}"></label>
-      <label title="Game days before a newly acquired player can be traded again. Trades scoring 3× the minimum are allowed anyway; players are never sent back to the team they came from during the cooldown.">Trade cooldown (game days)<input type="number" data-set="tradeCooldownDays" min="0" max="200" value="${settings.tradeCooldownDays ?? 30}"></label>
       <label title="Searching is slow; raise this if sims feel sluggish">Search for trades every N game days<input type="number" data-set="tradeEveryDays" min="1" max="82" value="${settings.tradeEveryDays || 1}"></label>
     </div></details></div>`;
 
+    html += liveHtml();
+
     if (settings.features.manager || settings.features.autopilot) {
-      const refresh = on(() => { st.pending = null; invalidate(); render(); refreshPending(); });
+      const refresh = on(() => { st.pending = null; st.queueSel = new Set(); invalidate(); render(); refreshPending(); });
       html += `<div class="h">${st.ap.running ? (settings.apAutoApprove !== false && settings.apAutoApprove !== "false" ? "Waiting for your OK (Never trade players only)" : "Waiting for your OK") : settings.managerMode === "auto" ? "Automatic management is on" : "Suggested moves"}</div>`;
       if (st.ap.running) html += `<div class="why">Autopilot makes the other moves itself before every step and logs them below. Only moves that need your OK (Ask-first players or picks, or moves that break your contract rules) wait here.</div>`;
       else if (settings.managerMode === "auto") html += `<div class="why">Runs after every game day and phase change. Everything it does is logged below with its reasons.</div>`;
@@ -1044,24 +1178,379 @@
         const check = async () => { const p = await B.poll(); if (p.gameSim || p.drafting) return "BBGM is simulating; try again when it stops"; if (planKey && progressKey(p) !== planKey) return "the game moved on since this plan was made; press Re-plan"; return null; };
         const after = async (res) => { const bad = res.find((r) => r.skipped && r.error !== "already done"); if (bad) st.flash = `Not done: ${bad.error}`; invalidate(); st.log = await S.getLog(); refreshPending(); };
         const all = on(async (el) => { el.disabled = true; const acts = st.pending; st.pending = null; render(); await after(await F.runActions(acts, { stateKey: planKey, check })); });
+        // Action queue: tick the moves you want, then run them together. Each is re-checked against the game
+        // state right before it runs, and the rest stop if the game moved on.
+        st.queueSel = st.queueSel || new Set();
+        const selActs = st.pending.filter((a) => st.queueSel.has(a.sig));
+        const runSel = on(async (el) => {
+          el.disabled = true;
+          const acts = st.pending.filter((a) => st.queueSel.has(a.sig));
+          st.pending = st.pending.filter((a) => !st.queueSel.has(a.sig)); st.queueSel = new Set(); render();
+          await after(await F.runActions(acts, { stateKey: planKey, check }));
+        });
+        const selAll = on(() => { const allOn = st.pending.every((a) => st.queueSel.has(a.sig)); st.queueSel = allOn ? new Set() : new Set(st.pending.map((a) => a.sig)); render(); });
         html += st.pending.map((a, i) => {
           const one = on(async (el) => { el.disabled = true; const [x] = st.pending.splice(i, 1); render(); await after(await F.runActions([x], { stateKey: planKey, check })); });
-          const skip = on(() => { st.pending.splice(i, 1); render(); });
-          return `<div class="card"><div class="hd"><span><span class="chip">${esc(a.kind)}</span> ${linkText(a.text, a.pids)}${a.approval ? `<div class="warn-line">Needs your OK: ${esc(a.why || "protected asset")}</div>` : ""}</span></div>
+          const skip = on(() => { st.pending.splice(i, 1); st.queueSel.delete(a.sig); render(); });
+          return `<div class="card"><div class="hd"><span>${st.ap.running ? "" : `<input type="checkbox" class="q" data-q="${esc(a.sig)}"${st.queueSel.has(a.sig) ? " checked" : ""} aria-label="Select this move"> `}<span class="chip">${esc(a.kind)}</span> ${linkText(a.text, a.pids)}${a.approval ? `<div class="warn-line">Needs your OK: ${esc(a.why || "protected asset")}</div>` : ""}</span></div>
             ${exHtml(a.ex, `p:${a.sig}`)}<div class="actions"><button class="sm pri" data-h="${one}">Do it</button><button class="sm" data-h="${skip}">Skip</button></div></div>`;
-        }).join("") + (st.ap.running ? "" : `<div class="actions"><button class="pri" data-h="${all}">Do all ${st.pending.length}</button></div>`);
+        }).join("") + (st.ap.running ? "" : `<div class="actions"><button class="sm" data-h="${selAll}">${st.pending.every((a) => st.queueSel.has(a.sig)) ? "Clear selection" : "Select all"}</button><button class="pri" data-h="${runSel}"${selActs.length ? "" : " disabled"}>Run selected (${selActs.length})</button><button data-h="${all}">Do all ${st.pending.length}</button></div>`);
       }
       html += `<div class="actions"><button class="sm" data-h="${refresh}">Re-plan</button></div>`;
     }
     if (st.apSummary) html += summaryHtml(st.apSummary);
-    html += `<div class="h">Activity log</div>`;
+    // Timeline: the activity log with filters by kind of event.
+    html += `<div class="h">Timeline</div>`;
     const clear = on(async () => { await S.clearLog(); st.log = []; render(); });
-    html += st.log.length ? `<div class="log">${st.log.slice(0, 30).map((e) => {
+    const f = st.logFilter || "all";
+    const chips = Object.entries(TIMELINE).map(([k, t]) => `<button class="sm${f === k ? " on" : ""}" data-h="${on(() => { st.logFilter = k; render(); })}">${t.label}</button>`).join("");
+    const shown = st.log.filter((e) => f === "all" || TIMELINE[f].kinds.includes(e.kind));
+    html += `<div class="chips">${chips}</div>`;
+    html += shown.length ? `<div class="log">${shown.slice(0, 60).map((e) => {
       const u = e.undoKey != null && !e.undone ? on(async (el) => { el.disabled = true; try { await B.call("undoLog", "undo", e.undoKey); await S.markUndone(e.t); st.log = await S.getLog(); st.flash = "Undone."; } catch (err) { st.flash = `Can't undo: ${err.message}`; } invalidate(); render(); setTimeout(() => { st.flash = ""; render(); }, 6000); }) : null;
       return `<div><span class="${e.kind === "error" ? "bad" : ""}">${linkText(e.text, e.pids)}${e.undone ? ` <small class="mut">(undone)</small>` : ""}${exHtml(e.ex, `l:${e.t}`)}</span><span>${u ? `<button class="sm" data-h="${u}">Undo</button> ` : ""}<time>${new Date(e.t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time></span></div>`;
-    }).join("")}</div><div class="actions"><button class="sm" data-h="${clear}">Clear log</button></div>` : `<div class="msg">No actions yet.</div>`;
+    }).join("")}</div><div class="actions"><button class="sm" data-h="${clear}">Clear log</button></div>` : `<div class="msg">${f === "all" ? "No actions yet." : "Nothing of this kind yet."}</div>`;
     return html;
   }
+  const TIMELINE = {
+    all: { label: "All", kinds: [] },
+    trade: { label: "Trades", kinds: ["trade"] },
+    roster: { label: "Signings", kinds: ["sign", "resign", "letwalk", "release"] },
+    draft: { label: "Draft", kinds: ["draft"] },
+    season: { label: "Seasons", kinds: ["season", "title", "league"] },
+    strategy: { label: "Strategy", kinds: ["strategy"] },
+    error: { label: "Problems", kinds: ["error"] },
+  };
+
+  /** Autopilot live: seasons completed, where the run is now, season results and the latest moves. */
+  function liveHtml() {
+    const ap = st.ap;
+    if (!settings.features.autopilot || (!ap.running && !(ap.seasonLog || []).length)) return "";
+    const done = (ap.seasonLog || []).length, target = Number(settings.apSeasons) || 1;
+    const pctDone = Math.min(100, Math.round((done / target) * 100));
+    const el = ap.runStart ? (Date.now() - ap.runStart) / 1000 : 0;
+    const fmtT = (s) => (s >= 3600 ? `${Math.floor(s / 3600)}h ${Math.round((s % 3600) / 60)}m` : s >= 60 ? `${Math.floor(s / 60)}m ${Math.round(s % 60)}s` : `${Math.round(s)}s`);
+    const per = done ? el / done : null;
+    const lv = ap.live;
+    const titles = (ap.seasonLog || []).filter((r) => r.champion).length;
+    const recent = (S.runLogEntries ? S.runLogEntries() : []).filter((e) => e.kind !== "minutes" && e.text).slice(-5).reverse(); // newest first
+    return `<div class="card live"><div class="hd"><b>Autopilot ${ap.running ? "live" : "run"}</b><span class="chip ${ap.running ? "gem" : ""}">${ap.running ? "● running" : "finished"}</span></div>
+      <div class="rows">
+        <div><span>Seasons completed</span><span>${done} of ${target}${titles ? ` · 🏆 ${titles}` : ""}</span></div>
+      </div><div class="bar"><i style="width:${pctDone}%"></i></div>
+      <div class="rows" style="margin-top:4px">
+        ${lv ? `<div><span>Now</span><span>${lv.season} · ${esc(PHASE_NAME[lv.phase] || "")}${lv.phase >= 1 && lv.phase <= 3 ? ` · ${lv.won}-${lv.lost}` : ""}</span></div>` : ""}
+        <div><span>Elapsed</span><span>${fmtT(el)}${per ? ` · ${fmtT(per)} per season` : ""}${per && ap.running && target > done ? ` · ~${fmtT(per * (target - done))} left` : ""}</span></div>
+      </div>
+      ${done ? `<table class="sum" style="margin-top:6px"><tr><th>Season</th><th>Record</th><th>Result</th></tr>${ap.seasonLog.slice(-5).reverse().map((r) => `<tr><td>${r.season}${r.team ? ` <small>${esc(r.team)}</small>` : ""}</td><td>${r.won}-${r.lost}</td><td>${r.champion ? "🏆 " : ""}${esc(r.result)}</td></tr>`).join("")}</table>` : ""}
+      ${recent.length ? `<div class="h" style="margin-top:8px">Latest moves</div><div class="log">${recent.map((e) => `<div><span>${linkText(e.text, e.pids)}</span></div>`).join("")}</div>` : ""}
+    </div>`;
+  }
+
+
+  // ======================================================================
+  // Front-office extras: loaded alongside the league model (owner mood, accuracy, watchlist, class history)
+  // ======================================================================
+  const lsKey = (k) => `${k}:${st.league || `lid${lidNow()}`}`;
+  async function loadOwner(force) {
+    const k = st.poll ? `${st.poll.season}:${st.poll.phase}:${Math.floor((st.poll.gp || 0) / 5)}` : "";
+    if (!force && st.owner && st.ownerKey === k) return st.owner;
+    try { st.owner = await B.ownerInfo(); st.ownerKey = k; } catch (e) { st.owner = null; }
+    return st.owner;
+  }
+  /** Runs after every league-model build: job security, forecast records, draft-class history, watchlist alerts. */
+  async function afterBuild(L) {
+    if (!IN) return;
+    try { st.job = IN.jobSecurity(L, await loadOwner()); } catch (e) { st.job = null; }
+    // #16: record next-season forecasts once per season (regular season), grade them later.
+    try {
+      if (L.snap.phase === PH_.REGULAR_SEASON) {
+        const acc = (await S.localGet(lsKey("acc"))) || {};
+        if (!acc[L.snap.season]) {
+          acc[L.snap.season] = { model: S.MODEL_VERSION, players: IN.forecastRecord(L) };
+          for (const s of Object.keys(acc).map(Number).sort((a, b) => a - b).slice(0, -6)) delete acc[s]; // keep six seasons
+          await S.localSet(lsKey("acc"), acc);
+        }
+        st.acc = acc;
+      } else if (!st.acc) st.acc = (await S.localGet(lsKey("acc"))) || {};
+    } catch (e) { /* storage full or unavailable */ }
+    // #9: remember each draft class's strength (before the draft) to compare future classes against.
+    try {
+      const hist = (await S.localGet(lsKey("classes"))) || [];
+      if (L.snap.phase <= PH_.DRAFT && !hist.some((h) => h.year === L.draftSeason)) {
+        const cs = IN.classStats(L, L.draftSeason);
+        if (cs && (L.snap.phase >= PH_.PLAYOFFS)) { hist.push(cs); await S.localSet(lsKey("classes"), hist.slice(-20)); }
+      }
+      IN.setClassHistory(hist);
+    } catch (e) { /* ignore */ }
+    // #17: watchlist alerts for pinned players in this league.
+    try {
+      const pins = (await S.getPins()).filter((p) => !p.league || p.league === st.league || p.lid === lidNow()).map((p) => Number(p.pid)).filter((x) => Number.isFinite(x));
+      if (pins.length) {
+        const prev = (await S.localGet(lsKey("watch"))) || {};
+        const { alerts, state } = IN.watchAlerts(L, pins, prev);
+        await S.localSet(lsKey("watch"), state);
+        if (alerts.length) {
+          const list = (await S.localGet(lsKey("alerts"))) || [];
+          const stamp = `${L.snap.season} ${PHASE_NAME[L.snap.phase] || ""}`.trim();
+          list.unshift(...alerts.map((a) => ({ ...a, when: stamp, t: Date.now() })));
+          await S.localSet(lsKey("alerts"), list.slice(0, 40));
+        }
+        st.alerts = (await S.localGet(lsKey("alerts"))) || [];
+      } else st.alerts = (await S.localGet(lsKey("alerts"))) || [];
+    } catch (e) { /* ignore */ }
+  }
+  const PH_ = { EXPANSION_DRAFT: -2, FANTASY_DRAFT: -1, PRESEASON: 0, REGULAR_SEASON: 1, AFTER_TRADE_DEADLINE: 2, PLAYOFFS: 3, DRAFT_LOTTERY: 4, DRAFT: 5, AFTER_DRAFT: 6, RESIGN_PLAYERS: 7, FREE_AGENCY: 8 };
+  const PHASE_NAME = { 0: "preseason", 1: "regular season", 2: "after the deadline", 3: "playoffs", 4: "before the draft", 5: "draft", 6: "after the draft", 7: "re-signing", 8: "free agency" };
+
+  // ======================================================================
+  // #19 Diagnostics: is everything Courtside needs still there in this version of BBGM?
+  // ======================================================================
+  const CAPS = {
+    "Autopilot (play menu)": ["playMenu.day", "playMenu.week", "playMenu.untilRegularSeason", "playMenu.untilEndOfRound", "playMenu.untilDraft", "playMenu.untilResignPlayers", "playMenu.untilFreeAgency", "playMenu.untilPreseason", "playMenu.stop"],
+    "Trades": ["main.getTradingBlockOffers", "main.createTrade", "main.proposeTrade", "main.tradeCounterOffer", "main.clearTrade"],
+    "Signings and re-signing": ["main.acceptContractNegotiation", "main.cancelContractNegotiation", "main.releasePlayer"],
+    "Lineup, minutes, finances": ["main.updatePlayingTime", "main.updateKeepRosterSorted", "main.updateBudget"],
+    "Draft": ["main.draftUser"],
+    "Fired → new team": ["main.switchTeam"],
+    "Undo": ["undoLog.undo"],
+  };
+  async function runDiagnostics() {
+    const d = { at: Date.now(), checks: [], groups: {} };
+    const t0 = performance.now();
+    try { const p = await B.poll(); d.checks.push({ name: "Data bridge (BBGM worker)", ok: !!p.inLeague, detail: p.inLeague ? `answered in ${Math.round(performance.now() - t0)} ms` : "not in a league" }); }
+    catch (e) { d.checks.push({ name: "Data bridge (BBGM worker)", ok: false, detail: e.message }); }
+    try {
+      const all = Object.values(CAPS).flat();
+      const r = await B.capabilities(all);
+      for (const [g, names] of Object.entries(CAPS)) {
+        const missing = names.filter((n) => !r.have[n]);
+        d.groups[g] = !missing.length;
+        d.checks.push({ name: g, ok: !missing.length, detail: missing.length ? `missing in this BBGM version: ${missing.join(", ")}` : "all actions available" });
+      }
+    } catch (e) { d.checks.push({ name: "Game actions", ok: false, detail: e.message }); }
+    try { const t1 = performance.now(); const snap = await B.snapshot(); d.checks.push({ name: "League snapshot", ok: Array.isArray(snap.players) && snap.players.length > 0, detail: `${snap.players.length} players in ${Math.round(performance.now() - t1)} ms` }); }
+    catch (e) { d.checks.push({ name: "League snapshot", ok: false, detail: e.message }); }
+    try {
+      const v = st.L && [...st.L.byPid.values()].find((x) => !x.prospect);
+      d.checks.push({ name: "Simulation engine", ok: !!(v && v.fc && v.fc.meanPath && v.fc.meanPath.length > 1), detail: v ? `forecasts ready (${st.L.byPid.size} players)` : "league model not built yet" });
+    } catch (e) { d.checks.push({ name: "Simulation engine", ok: false, detail: e.message }); }
+    const sync = await S.status();
+    d.checks.push({ name: "Settings sync", ok: sync.mode !== "error", detail: sync.text });
+    const ga = (st.L && st.L.snap.ga) || {};
+    const ch = ["challengeNoTrades", "challengeNoFreeAgents", "challengeNoDraftPicks", "challengeNoRatings", "challengeFiredLuxuryTax", "challengeFiredMissPlayoffs", "challengeLoseBestPlayer"].filter((k) => ga[k]);
+    d.checks.push({ name: "Challenge modes", ok: true, detail: ch.length ? `on: ${ch.map((k) => k.replace("challenge", "")).join(", ")} (the manager follows them)` : "none" });
+    st.diag = d;
+    return d;
+  }
+  /** Before Autopilot starts: refuse if BBGM is missing what it needs (instead of failing mid-run). */
+  async function preflight() {
+    const d = await runDiagnostics().catch(() => null);
+    if (!d) return null;
+    if (d.groups["Autopilot (play menu)"] === false) return "this BBGM version is missing play-menu actions Autopilot needs (see Insights → Diagnostics)";
+    return null;
+  }
+
+  // ======================================================================
+  // Office tab: job security, upcoming decisions, re-sign risk, watchlist, objectives, compact mode
+  // ======================================================================
+  function officeBody() {
+    const wait = needL();
+    if (wait) return wait;
+    const L = st.L;
+    let html = "";
+    const job = st.job;
+    html += `<div class="h">Job security</div>`;
+    if (!job) { html += `<div class="msg">Reading the owner's mood…</div>`; loadOwner(true).then((o) => { st.job = IN.jobSecurity(L, o); render(); }); }
+    else {
+      const label = { none: "God Mode: you can't be fired", grace: `Grace period until ${job.graceEnd}`, fired: "On pace to be FIRED at season's end", high: "High risk", medium: "Some risk", low: "Safe" }[job.risk];
+      if (job.inGrace) html += `<div class="why" style="margin-top:0">The owner starts counting in ${job.graceEnd}. Until then this shows what the owner would think of this season.</div>`;
+      const f2 = (x) => (x >= 0 ? "+" : "") + x.toFixed(2);
+      html += `<div class="card"><div class="hd"><b>${job.security}%</b><span class="chip ${job.risk === "fired" || job.risk === "high" ? "over" : job.risk === "low" || job.risk === "none" ? "gem" : ""}">${esc(label)}</span></div>
+        <div class="meter"><b style="left:${job.security}%"></b></div>
+        <table><tr><th>Owner cares about</th><th>So far</th><th>${job.seasonDone ? "" : "This season (proj.)"}</th></tr>
+        ${["wins", "playoffs", "money"].map((k) => `<tr><td>${k[0].toUpperCase() + k.slice(1)}</td><td>${f2(job.base[k])}</td><td>${job.deltas ? f2(job.deltas[k]) : ""}</td></tr>`).join("")}
+        <tr><td><b>Total</b></td><td><b>${f2(job.now)}</b></td><td><b>${job.seasonDone ? "" : `→ ${f2(job.total)}`}</b></td></tr></table>
+        <div class="why">BBGM fires you when the total drops below −1 at the end of a season (after the grace period). Each part is capped at +1, so you can't win the owner over with money alone.</div>
+        ${job.tips.length ? `<ul>${job.tips.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>` : ""}</div>`;
+    }
+    html += `<div class="h">Coming up</div>`;
+    const dec = IN.decisions(L, { job });
+    html += dec.length ? dec.map((x) => `<div class="dec${x.urgent ? " urgent" : ""}"><span class="when">${esc(x.when)}</span><span style="flex:1">${esc(x.text)}</span><a href="#" data-h="${on(() => { st.tab = x.tab; render(); onTabOpen(x.tab); })}">Go</a></div>`).join("") : `<div class="msg">Nothing urgent.</div>`;
+    html += `<div class="h">Re-signing risk</div>`;
+    const rr = IN.resignRisks(L);
+    html += rr.length ? `<table><tr><th>Player</th><th>Willing</th><th>Asks</th></tr>${rr.map((r) => `<tr><td>${plink(r.pid, r.name)}${r.key ? ` <span class="chip">core</span>` : ""}<small>${r.age} yo · OVR ${r.ovr} · expires ${r.exp}${r.traits.length ? ` · ${esc(r.traits.map((t) => IN.TRAIT[t] || t).join(", "))}` : ""}</small></td>
+      <td class="${r.risk === "high" ? "no" : r.risk === "low" ? "ok" : ""}">${r.probWilling == null ? "?" : Math.round(r.probWilling * 100) + "%"}</td><td>${r.ask ? F.fmtMoney(r.ask) : "–"}</td></tr>`).join("")}</table>
+      <div class="why">BBGM's own willingness estimate (mood: facilities, winning, hype, playing time, trades, traits). It changes during the season; Autopilot shops core players who are unlikely to stay before the deadline${settings.teamMode === "winnow" || (L.strategy && L.strategy.key === "winnow") ? " (except while going all-in)" : ""}.</div>` : `<div class="msg">No contracts ending soon.</div>`;
+    html += `<div class="h">Watchlist alerts</div>`;
+    const al = st.alerts || [];
+    html += al.length ? `<div class="log">${al.slice(0, 15).map((a) => `<div><span>${linkText(a.text, [a.pid])}</span><time>${esc(a.when || "")}</time></div>`).join("")}</div>` : `<div class="msg">Pin players (★ on their Outlook card) to get alerts when they break out, decline, move, hit free agency, get hurt or near the end of their contract.</div>`;
+    // #13 Franchise objectives
+    const ob = settings.objectives || {};
+    html += `<div class="h">Franchise objectives</div><div class="card adv" style="margin-top:0">
+      <label>Win a title by season <input type="number" data-obj="titleBy" min="0" max="3000" value="${Number(ob.titleBy) || 0}" title="0 = no deadline"></label>
+      <label class="row"><input type="checkbox" data-obj="underTax"${isOn(ob.underTax) ? " checked" : ""}> Stay under the luxury tax</label>
+      <label class="row"><input type="checkbox" data-obj="keepFirsts"${isOn(ob.keepFirsts) ? " checked" : ""}> Never trade first-round picks</label>
+      <label class="row"><input type="checkbox" data-obj="starDraft"${isOn(ob.starDraft) ? " checked" : ""}> Draft for a future star (rank prospects by ceiling)</label>
+      <div class="why">The manager and Autopilot follow these: the title deadline pushes Auto toward Contend / Win Now as it nears; the tax and pick goals rule out trades, signings and re-signings that break them.${Number(ob.titleBy) > 0 && Number(ob.titleBy) < L.snap.season ? " <b>The title deadline has passed.</b>" : ""}</div></div>`;
+    // #18 Compact mode
+    const metrics = settings.compactMetrics || [];
+    html += `<div class="h">Compact mode</div><div class="card adv" style="margin-top:0">
+      <label class="row"><input type="checkbox" data-set="compactMode"${isOn(settings.compactMode) ? " checked" : ""}> Show a mini panel with three metrics</label>
+      <div class="why">Pick up to three:</div>
+      ${Object.entries(METRICS).map(([k, m]) => `<label class="row"><input type="checkbox" data-cmetric="${k}"${metrics.includes(k) ? " checked" : ""}${!metrics.includes(k) && metrics.length >= 3 ? " disabled" : ""}> ${esc(m.label)}</label>`).join("")}</div>`;
+    return html;
+  }
+
+  // ======================================================================
+  // Insights tab: lineup synergy, playoff scout, draft class, rivals, legacy, accuracy, benchmark, diagnostics
+  // ======================================================================
+  function insightsBody() {
+    const wait = needL();
+    if (wait) return wait;
+    const L = st.L;
+    let html = "";
+    // #7
+    const syn = IN.lineupSynergy(L);
+    html += `<div class="h">Lineup synergy</div>`;
+    if (!syn) html += `<div class="msg">Not enough healthy players.</div>`;
+    else {
+      const bar = (x) => `<div class="bar"><i style="width:${Math.round(Math.min(1, x) * 100)}%"></i></div>`;
+      const col = (t, x) => `<div><b>${t}</b><div class="why" style="margin:2px 0">${x.pids.map((p) => plink(p, LG.name(L, p))).join(", ")}</div>Offense ${bar(x.syn.off)}Defense ${bar(x.syn.def)}Rebounding ${bar(x.syn.reb)}</div>`;
+      html += `<div class="lineup">${col("Your starters", syn.current)}${col("Best fit (top 9)", syn.best)}</div>`;
+      html += syn.gain > 1 ? `<div class="banner acc" style="margin-top:6px">Start ${syn.swaps.in.map((p) => plink(p, LG.name(L, p))).join(", ")} over ${syn.swaps.out.map((p) => plink(p, LG.name(L, p))).join(", ")}: better skill fit (+${syn.gain.toFixed(1)} on the fit score). Set it in BBGM's Roster page with "Keep auto sorted" off.</div>`
+        : `<div class="why">Your starting five already has the best skill fit available.</div>`;
+      if (syn.missing.length) html += `<div class="why">Missing on the floor: ${esc(syn.missing.join(", "))}.</div>`;
+      html += `<div class="why">BBGM's game simulation gives a bonus for skill combinations on the floor (shooters, ball handlers, passers, rim protection, rebounding, athleticism). Fit score = starters' OVR + 8 × synergy.</div>`;
+    }
+    // #8
+    html += `<div class="h">Playoff matchup scout</div>`;
+    if (L.snap.phase === PH_.PLAYOFFS && !st.bracket) B.playoffInfo().then((b) => { st.bracket = b; render(); }).catch(() => {});
+    const ps = IN.playoffScout(L, L.snap.phase === PH_.PLAYOFFS ? st.bracket : null);
+    const card = (m, title) => `<div class="card"><div class="hd"><b>${title} ${esc(m.name)}</b><span class="chip ${m.edge >= 0 ? "gem" : "over"}">${m.edge >= 0 ? "+" : ""}${m.edge.toFixed(1)} rating · ${Math.round(m.winProb * 100)}% per game</span></div>
+      ${m.strengths.length ? `<div class="why"><span class="ok">Lean on:</span> ${esc(m.strengths.map((r) => r.label).join(", "))}</div>` : ""}
+      ${m.weaknesses.length ? `<div class="why"><span class="no">Watch:</span> ${esc(m.weaknesses.map((r) => r.label).join(", "))}</div>` : ""}</div>`;
+    if (ps.opponent) html += card(ps.opponent, "vs");
+    else html += `<div class="why">${ps.inPlayoffs ? "You're out of the playoffs." : "During the playoffs this shows your opponent. Biggest threats now:"}</div>${ps.threats.map((m) => card(m, "")).join("")}`;
+    html += `<div class="why">In the playoffs the manager tightens the rotation to 8 and gives stars more minutes, whatever the strategy.</div>`;
+    // #9
+    const cls = IN.draftClass(L);
+    html += `<div class="h">Draft class strength</div>`;
+    html += cls ? `<div class="card"><div class="hd"><b>${cls.now.year} class</b><span class="chip ${cls.verdict === "strong" ? "gem" : cls.verdict === "weak" ? "over" : ""}">${cls.verdict} · ${Math.round(cls.ratio * 100)}%</span></div>
+      <div class="why">${esc(cls.advice)} Compared with ${esc(cls.basis)}. Top 5 avg value ${cls.now.top5.toFixed(1)}, lottery ${cls.now.top14.toFixed(1)}${cls.next ? `; next year's class: top 5 ${cls.next.top5.toFixed(1)}` : ""}.</div>
+      <div class="why">The trade helper shops this year's picks more in weak classes and less in strong ones. Scouting fog applies to prospects.</div></div>` : `<div class="msg">Not enough prospects visible yet.</div>`;
+    // #10
+    html += `<div class="h">Rival GM tendencies</div>`;
+    if (!st.rivals) { const go = on(async (el) => { el.disabled = true; el.textContent = "Reading…"; const ev = await B.tradeEvents().catch(() => null); st.rivals = IN.rivals(L, ev); render(); }); html += `<div class="actions"><button class="sm" data-h="${go}">Analyze AI teams</button></div>`; }
+    else html += `<table><tr><th>Team</th><th>Style</th></tr>${st.rivals.slice(0, 30).map((r) => `<tr><td><b>${esc(r.abbrev)}</b><small>${r.strategy} · age ${r.age.toFixed(1)} · ${r.firsts} firsts${r.payPct != null ? ` · payroll ${Math.round(r.payPct * 100)}% of cap` : ""}</small></td><td style="text-align:left">${esc(r.tags.join("; ") || "—")}<small>${esc(r.shop)}</small></td></tr>`).join("")}</table>`;
+    // #11
+    html += `<div class="h">Franchise legacy</div>`;
+    if (!st.legacy) { const go = on(async (el) => { el.disabled = true; el.textContent = "Reading history…"; try { st.legacy = IN.legacyView(L, await B.legacy()); } catch (e) { st.flash = e.message; } render(); }); html += `<div class="actions"><button class="sm" data-h="${go}">Load franchise history</button></div><div class="why">Reads every player who played for or was drafted by your team (can take a few seconds in long leagues).</div>`; }
+    else html += `<table><tr><th>Player</th><th>With you</th><th>Now</th></tr>${st.legacy.rows.slice(0, 25).map((r) => `<tr><td>${plink(r.pid, r.name)}${r.drafted ? ` <span class="chip">drafted ${r.draft.year} #${r.draft.round === 1 ? r.draft.pick : `${r.draft.round}-${r.draft.pick}`}</span>` : ""}<small>${esc(r.awardsText || "")}${r.peak ? ` · peak OVR ${r.peak}` : ""}</small></td><td>${r.seasonsWithUs} yrs<small>${Math.round(r.ptsUs)} pts</small></td><td>${esc(r.where)}${r.ovrNow != null && !r.retired ? `<small>OVR ${r.ovrNow}</small>` : ""}</td></tr>`).join("")}</table>
+      ${st.legacy.gone.length ? `<div class="why">Former players now elsewhere: ${st.legacy.gone.slice(0, 8).map((r) => `${esc(r.name)} (${esc(r.where)}${r.ovrNow != null ? `, OVR ${r.ovrNow}` : ""})`).join(", ")}.</div>` : ""}`;
+    // #16
+    html += `<div class="h">Prediction accuracy</div>`;
+    const acc = IN.accuracy(L, st.acc || {});
+    if (acc.overall) {
+      html += `<div class="card"><div class="rows">
+        <div><span>Average error (next-season OVR)</span><span>${acc.overall.mae.toFixed(2)}</span></div>
+        <div><span>"No change" guess error, for comparison</span><span>${acc.overall.naiveMae.toFixed(2)}</span></div>
+        <div><span>Inside the 80% range (target 80%)</span><span class="${Math.abs(acc.overall.coverage - 0.8) <= 0.08 ? "ok" : "no"}">${Math.round(acc.overall.coverage * 100)}%</span></div>
+        <div><span>Bias (+ = too optimistic)</span><span>${num(acc.overall.bias, 2)}</span></div></div>
+        <table class="sum"><tr><th>Season</th><th>Players</th><th>Error</th><th>In range</th></tr>${acc.seasons.map((x) => `<tr><td>${x.season} → ${x.season + 1}</td><td>${x.n}</td><td>${x.mae.toFixed(2)}</td><td>${Math.round(x.coverage * 100)}%</td></tr>`).join("")}</table></div>`;
+    } else html += `<div class="msg">Courtside saves its forecasts each regular season and grades them once the next season's ratings exist.${acc.pending.length ? ` Waiting on ${acc.pending.join(", ")}.` : " Play into a regular season to start."}</div>`;
+    // #12
+    html += `<div class="h">Strategy benchmark</div>`;
+    const bm = IN.benchmark(st.bench || []);
+    if (!st.bench) S.localGet("bench").then((b) => { st.bench = b || []; if (st.tab === "insights") render(); });
+    html += bm.length ? `<table class="sum"><tr><th>Strategy</th><th>Runs</th><th>Win%</th><th>Titles</th><th>Playoffs</th></tr>${bm.map((b) => `<tr><td>${esc(b.strategy)}</td><td>${b.runs} (${b.seasons} yrs)</td><td>${(b.winPct * 100).toFixed(1)}%</td><td>${b.titles}</td><td>${Math.round(b.playoffRate * 100)}%</td></tr>`).join("")}</table>` : "";
+    html += `<div class="why">Every Autopilot run is recorded with its strategy setting. For a fair test, export your league (Tools → Export), import it as two copies, run Autopilot with a different strategy in each for the same number of seasons, and compare here. Courtside never copies or edits league files itself.</div>`;
+    // #19
+    html += `<div class="h">Diagnostics</div>`;
+    const runD = on(async (el) => { el.disabled = true; el.textContent = "Checking…"; await runDiagnostics(); render(); });
+    if (st.diag) html += `<div class="log">${st.diag.checks.map((c) => `<div><span><span class="${c.ok ? "ok" : "no"}">${c.ok ? "✓" : "✗"}</span> ${esc(c.name)}<small class="mut" style="display:block">${esc(c.detail)}</small></span></div>`).join("")}</div>`;
+    html += `<div class="actions"><button class="sm" data-h="${runD}">${st.diag ? "Check again" : "Run health check"}</button></div><div class="why">Checks that every BBGM action Courtside uses still exists in this version of the game. Autopilot runs this before it starts and refuses to start if something it needs is missing.</div>`;
+    return html;
+  }
+
+  // ======================================================================
+  // #18 Compact mode metrics
+  // ======================================================================
+  const METRICS = {
+    rating: { label: "Team rating rank", get: (L) => { const r = 1 + L.snap.teams.filter((t) => t.tid !== L.snap.userTid && (L.movNow.get(t.tid) || 0) > (L.movNow.get(L.snap.userTid) || 0)).length; return [ordinal(r), "Rating"]; } },
+    record: { label: "Record", get: (L) => [L.user ? `${L.user.won}-${L.user.lost}` : "–", "Record"] },
+    job: { label: "Job security", get: () => [st.job ? `${st.job.security}%` : "…", "Job"] },
+    cap: { label: "Cap space", get: (L) => [L.capInfo.type === "none" ? "—" : F.fmtMoney(L.capInfo.cap - L.capInfo.payroll), "Cap space"] },
+    strategy: { label: "Strategy", get: (L) => [L.strategy ? L.strategy.label : "–", "Strategy"] },
+    next: { label: "Next decision", get: (L) => { const d = IN.decisions(L, { job: st.job })[0]; return [d ? d.when : "—", "Next"]; } },
+  };
+  function compactBody() {
+    if (!st.L) return needL() || "";
+    const ms = (settings.compactMetrics || []).filter((k) => METRICS[k]).slice(0, 3);
+    const open = on(async () => { settings.compactMode = false; await S.saveSettings({ compactMode: false }); render(); });
+    const dec = IN.decisions(st.L, { job: st.job })[0];
+    return `<div class="mini">${ms.map((k) => { const [v, l] = METRICS[k].get(st.L); return `<div><small>${esc(l)}</small><strong>${esc(v)}</strong></div>`; }).join("")}</div>
+      ${dec ? `<div class="why">${esc(dec.text)}</div>` : ""}<div class="actions"><button class="sm" data-h="${open}">Full panel</button></div>`;
+  }
+
+  // ======================================================================
+  // #14 Command bar (Alt+K)
+  // ======================================================================
+  function commands() {
+    const lid = lidNow();
+    const tab = (id, label) => ({ label: `Open ${label}`, hint: "Courtside tab", run: () => { settings.panelCollapsed = false; st.tab = id; render(); onTabOpen(id); } });
+    const page = (path, label) => ({ label: `Go to ${label}`, hint: "BBGM page", run: () => goTo(`/l/${lid}/${path}`) });
+    const list = TABS.filter(([, , en]) => en()).map(([id, label]) => tab(id, label));
+    list.push(page("roster", "Roster"), page("trade", "Trade"), page("trading_block", "Trading Block"), page("free_agents", "Free Agents"), page("draft", "Draft"),
+      page("standings", "Standings"), page("team_finances", "Team Finances"), page("settings", "League Settings"), page("inbox", "Inbox"));
+    if (settings.features.autopilot) list.push(st.ap.running ? { label: "Stop Autopilot", hint: "action", run: () => stopAutopilot() } : { label: "Run Autopilot", hint: "action", run: () => { st.tab = "manager"; startAutopilot(); } });
+    if (settings.features.trades) list.push({ label: "Find trades", hint: "action", run: () => { st.tab = "trades"; st.trades.ideas = null; render(); refreshTrades(); } });
+    list.push({ label: "Re-plan manager moves", hint: "action", run: () => { st.tab = "manager"; st.pending = null; invalidate(); render(); refreshPending(); } });
+    list.push({ label: "Run health check", hint: "action", run: async () => { st.tab = "insights"; render(); await runDiagnostics(); render(); } });
+    list.push({ label: isOn(settings.compactMode) ? "Full panel" : "Compact panel", hint: "view", run: async () => { settings.compactMode = !isOn(settings.compactMode); await S.saveSettings({ compactMode: settings.compactMode }); render(); } });
+    list.push({ label: "Reset panel position", hint: "view", run: async () => { settings.panelPos = null; await S.saveSettings({ panelPos: null }); render(); } });
+    list.push({ label: settings.panelCollapsed ? "Open Courtside" : "Close Courtside", hint: "view", run: async () => { settings.panelCollapsed = !settings.panelCollapsed; await S.saveSettings({ panelCollapsed: settings.panelCollapsed }); render(); } });
+    return list;
+  }
+  function openCommandBar() {
+    if (document.getElementById("courtside-cmd")) return;
+    // Its own host, so the dock re-rendering every few seconds doesn't close it.
+    const cmdHost = document.createElement("div");
+    cmdHost.id = "courtside-cmd";
+    const root2 = cmdHost.attachShadow({ mode: "open" });
+    root2.innerHTML = `<style>${CSS}</style>`;
+    const el = document.createElement("div");
+    el.className = "cmd";
+    el.innerHTML = `<div class="box wrap${isDark() ? " dark" : ""}" style="position:static;width:min(520px, calc(100vw - 32px));max-height:none;display:block"><input placeholder="Type a command… (Esc to close)" aria-label="Command"><ul role="listbox"></ul></div>`;
+    root2.appendChild(el);
+    document.body.appendChild(cmdHost);
+    const input = el.querySelector("input"), ul = el.querySelector("ul");
+    let items = [], sel = 0;
+    const draw = () => {
+      const q = input.value.trim().toLowerCase();
+      items = commands().filter((c) => !q || q.split(/\s+/).every((w) => c.label.toLowerCase().includes(w)));
+      sel = Math.min(sel, Math.max(0, items.length - 1));
+      ul.innerHTML = items.map((c, i) => `<li role="option" data-i="${i}" class="${i === sel ? "sel" : ""}"><span>${esc(c.label)}</span><small>${esc(c.hint)}</small></li>`).join("") || `<li><small>No match</small></li>`;
+    };
+    const close = () => cmdHost.remove();
+    const runIt = (i) => { const c = items[i]; close(); if (c) c.run(); };
+    input.addEventListener("input", () => { sel = 0; draw(); });
+    input.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "Escape") close();
+      else if (e.key === "ArrowDown") { sel = Math.min(items.length - 1, sel + 1); draw(); e.preventDefault(); }
+      else if (e.key === "ArrowUp") { sel = Math.max(0, sel - 1); draw(); e.preventDefault(); }
+      else if (e.key === "Enter") runIt(sel);
+    });
+    ul.addEventListener("click", (e) => { const li = e.target.closest("li[data-i]"); if (li) runIt(Number(li.dataset.i)); });
+    el.addEventListener("click", (e) => { if (e.target === el) close(); });
+    draw();
+    input.focus();
+  }
+  document.addEventListener("keydown", (e) => {
+    if (!isOn(settings.commandBar) || !lidNow()) return;
+    if (e.altKey && !e.ctrlKey && !e.metaKey && e.code === "KeyK") { e.preventDefault(); openCommandBar(); }
+  }, true);
 
   // ======================================================================
   // Needs tab (team needs scanner)
@@ -1341,8 +1830,101 @@
         ex: { why: `Protected ${keep.length} of ${info.pids.length} players (league limit ${info.num || "none"}): Never-trade first, then Ask-first, then highest value for ${L.strategy.label}.`, benefits: [], costs: [], strategy: L.strategy.label, basis: "projected" } });
       return true;
     }
-    if (poll.gameOver) throw new Error("BBGM says you were fired (game over). Pick a new team or league in BBGM, then start Autopilot again");
     return false;
+  }
+  /**
+   * Opens a BBGM page through the game's own router, the same as clicking a link in the game. Returns false
+   * (and does nothing) if BBGM didn't handle the click, so the page is never reloaded mid-run.
+   */
+  function routeTo(path) {
+    const a = document.createElement("a");
+    a.href = path; a.hidden = true;
+    let routed = false;
+    // Registered after BBGM's own listener, so it runs last and can see whether BBGM took the click.
+    const guard = (e) => { if (e.target !== a) return; routed = e.defaultPrevented; if (!routed) e.preventDefault(); };
+    window.addEventListener("click", guard);
+    document.body.appendChild(a);
+    try { a.click(); } finally { window.removeEventListener("click", guard); a.remove(); }
+    return routed;
+  }
+  /**
+   * Opens every unread inbox message (the owner's "Annual performance evaluation" and the like) so they
+   * don't pile up for you to click through after the run. BBGM marks a message read when its page is opened.
+   * Returns how many were read.
+   */
+  async function autoReadMessages(poll) {
+    const lid = lidNow();
+    const mids = (poll && poll.unread) || [];
+    if (!isOn(settings.apAutoReadMessages) || !lid || !mids.length || st.ap.readFailed) return 0;
+    const back = location.pathname + location.search + location.hash;
+    let read = 0;
+    st.ap.status = `Reading ${mids.length} inbox message${mids.length === 1 ? "" : "s"}…`; render();
+    for (const mid of mids.slice(0, 50)) {
+      if (st.ap.stopReq) break;
+      if (!routeTo(`/l/${lid}/message/${mid}`)) { st.ap.readFailed = true; break; }
+      let done = false;
+      for (let i = 0; i < 40 && !done; i++) {
+        await sleep(150);
+        const p = await B.poll().catch(() => null);
+        done = !!p && !(p.unread || []).includes(mid);
+      }
+      if (!done) { st.ap.readFailed = true; break; }
+      read++;
+    }
+    if (read) {
+      routeTo(back);
+      await S.addLog({ kind: "league", text: `Read ${read} inbox message${read === 1 ? "" : "s"} (owner evaluations and similar) so they don't pile up` });
+    }
+    if (st.ap.readFailed) await S.addLog({ kind: "error", text: "Couldn't open BBGM's inbox messages automatically. Autopilot keeps going; read them from BBGM's Play menu later." });
+    return read;
+  }
+  /**
+   * After being fired: takes over the strongest team on BBGM's New Team list (the five worst records unless
+   * God Mode is on), judged by team rating now and in two seasons. Uses BBGM's own switchTeam action.
+   */
+  async function takeNewTeam(poll) {
+    st.ap.status = "You were fired. Picking a new team…"; render();
+    const opts = await B.newTeamOptions();
+    if (!opts.teams.length) throw new Error("BBGM says you were fired, and there's no other team to take over");
+    let L = null;
+    try { L = await getL(true); } catch (e) { /* fall back to the list order */ }
+    const score = (tid) => (L && L.movNow && L.mov2 ? 0.5 * (L.movNow.get(tid) ?? 0) + 0.5 * (L.mov2.get(tid) ?? 0) : 0);
+    const ranked = opts.teams.map((t) => ({ ...t, score: score(t.tid) })).sort((a, b) => b.score - a.score);
+    const pick = ranked[0];
+    const oldTeam = L && L.teams && L.teams.get(poll.userTid);
+    await B.call("main", "switchTeam", pick.tid);
+    const p = await waitIdle();
+    if (p.gameOver || p.userTid !== pick.tid) throw new Error("BBGM says you were fired, and switching to a new team didn't work. Pick a new team in BBGM, then start Autopilot again");
+    st.ap.rosterStart = null; // roster turnover is measured from the new team
+    st.ap.newTeams = (st.ap.newTeams || 0) + 1;
+    invalidate(); st.trades.ideas = null; st.pending = null;
+    await S.addLog({ kind: "league", text: `Fired${oldTeam ? ` by the ${oldTeam.region} ${oldTeam.name}` : ""}. Took over the ${pick.region} ${pick.name} (${pick.won}-${pick.lost})`,
+      ex: { why: `BBGM offered ${ranked.length} team${ranked.length === 1 ? "" : "s"}${opts.godMode ? " (God Mode: every team)" : " (the worst records this season)"}. Picked the best team rating now and in two seasons: ${ranked.map((t) => `${t.abbrev} ${t.score.toFixed(1)}`).join(", ")}.`, benefits: [], costs: [], strategy: L && L.strategy ? L.strategy.label : "", basis: "projected" } });
+  }
+  /**
+   * Live season tracking: when a season's playoffs end, read its result from BBGM's records, log it (and any
+   * title), and count it as a completed season.
+   */
+  async function noteSeasonEnd(poll) {
+    st.ap.live = { season: poll.season, phase: poll.phase, won: poll.won, lost: poll.lost, at: Date.now() };
+    const prev = st.ap.lastPhase;
+    st.ap.lastPhase = poll.phase;
+    if (prev == null) return;
+    // The playoffs just finished (BBGM moves on to the draft lottery).
+    if (!(prev >= 0 && prev <= PH_.PLAYOFFS && poll.phase > PH_.PLAYOFFS)) return;
+    const ended = poll.season;
+    if (st.ap.seasonsSeen.has(ended)) return;
+    st.ap.seasonsSeen.add(ended);
+    const h = await B.history(ended, ended);
+    const r = h.rows.find((x) => x.tid === h.userTid && x.season === ended);
+    if (!r) return;
+    const nr = h.nr;
+    const res = r.prw < 0 ? "missed the playoffs" : r.prw >= nr ? "won the title" : r.prw === nr - 1 ? "lost in the finals" : `lost in playoff round ${r.prw + 1}`;
+    const t = st.L && st.L.teams.get(h.userTid);
+    const row = { season: ended, won: r.won, lost: r.lost + (r.otl || 0), result: res, champion: r.prw >= nr && nr > 0, team: t ? t.abbrev : "" };
+    st.ap.seasonLog.push(row);
+    await S.addLog({ kind: row.champion ? "title" : "season", text: `${row.champion ? "🏆 " : ""}Season ${ended}${row.team ? ` (${row.team})` : ""}: ${row.won}-${row.lost}, ${res}` });
+    st.log = await S.getLog();
   }
   async function startAutopilot() {
     if (st.ap.running) return;
@@ -1351,7 +1933,12 @@
       const r = answerBBGMDialogs();
       if (r && r !== "answered" && !/Waiting for BBGM/.test(st.ap.status)) { st.ap.status = `Waiting for BBGM: it's showing a message that needs you ("${r.replace(/\s+/g, " ")}…")`; render(); }
     }, 1000);
-    st.ap = { running: true, status: "Starting…", startSeason: null, stopReq: false, runStart: Date.now(), strategies: {}, rosterStart: null };
+    st.ap = { running: true, status: "Checking BBGM…", startSeason: null, stopReq: false, runStart: Date.now(), strategies: {}, rosterStart: null, seasonLog: [], seasonsSeen: new Set(), lastPhase: null };
+    render();
+    // #19: refuse to start if this BBGM version lacks what Autopilot needs (instead of failing mid-run).
+    const bad = await preflight();
+    if (bad) { st.ap.running = false; st.ap.status = `Didn't start: ${bad}`; clearInterval(dialogTimer); await S.addLog({ kind: "error", text: `Autopilot didn't start: ${bad}` }); render(); return; }
+    st.ap.status = "Starting…";
     S.startRunLog();
     render();
     // Autopilot must make every decision the game would otherwise stop and ask you about.
@@ -1366,6 +1953,13 @@
         if (!poll.inLeague) throw new Error("Not in a league");
         if (poll.multiTeam || poll.spectator) throw new Error("Autopilot needs a single user team (not multi-team or spectator mode)");
         if (st.ap.startSeason == null) st.ap.startSeason = poll.season;
+        await noteSeasonEnd(poll).catch(() => {});
+        if (await autoReadMessages(poll)) continue;
+        if (poll.gameOver) {
+          if (!isOn(settings.apAutoNewTeam)) throw new Error("BBGM says you were fired (game over). Pick a new team or league in BBGM, then start Autopilot again (or turn on \"Auto-pick a new team when fired\" in the Manager tab's Advanced settings)");
+          await takeNewTeam(poll);
+          continue;
+        }
         const reason = F.stopHere(poll, settings, st.ap.startSeason);
         if (reason && stuck === 0 && st.ap.lastKey) { st.ap.status = `Finished: ${reason}.`; break; }
         // Loop guard: many manager rounds without the game moving means something keeps failing.
@@ -1444,6 +2038,9 @@
       st.ap.status = `Stopped: ${e.message}`;
       await S.addLog({ kind: "error", text: `Autopilot stopped: ${e.message}` });
     }
+    // Messages created by the last step (e.g. the season-end owner evaluation).
+    try { await autoReadMessages(await B.poll()); } catch (e) { /* not critical */ }
+    if (st.ap.newTeams) st.ap.status += ` Took over ${st.ap.newTeams} new team${st.ap.newTeams === 1 ? "" : "s"} after being fired.`;
     st.ap.running = false;
     st.log = await S.getLog();
     await buildSummary(lastL).catch((e) => { st.ap.status += ` (summary unavailable: ${e.message})`; });
@@ -1460,6 +2057,17 @@
     st.apSummary = SG.summarizeRun({ rows: hist.rows, userTid: hist.userTid, nr: hist.nr, from: st.ap.startSeason, to: p.season, log,
       strategies: st.ap.strategies, rosterStart: st.ap.rosterStart || [], rosterEnd: end });
     await S.localSet(`apSummary:${lidNow()}`, st.apSummary);
+    // #12: record the run for the strategy benchmark (local only, last 50 runs).
+    try {
+      const sm = st.apSummary;
+      if (sm && sm.seasons && sm.seasons.length) {
+        const bench = (await S.localGet("bench")) || [];
+        bench.unshift({ t: Date.now(), league: st.league || `lid${lidNow()}`, strategy: settings.teamMode || "auto", difficulty: L && L.difficulty ? L.difficulty.label : "",
+          from: sm.from, seasons: sm.seasons.length, winPct: sm.winPct, titles: sm.titles, playoffApps: sm.playoffApps, payrollPerWin: sm.payrollPerWin });
+        await S.localSet("bench", bench.slice(0, 50));
+        st.bench = bench.slice(0, 50);
+      }
+    } catch (e) { /* ignore */ }
   }
   async function stopAutopilot() {
     st.ap.stopReq = true;

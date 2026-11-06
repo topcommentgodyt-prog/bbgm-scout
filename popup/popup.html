@@ -107,7 +107,6 @@
           <p class="hint">No limit on how many. A trade is made only when it raises your team rating (BBGM's predicted margin of victory): now if you're contending, over the next two seasons if you're rebuilding, both if balanced.</p>
           <label>Minimum improvement (points of team rating; 1 point ≈ 2.7 wins over 82 games) <input type="number" data-k="tradeMinMov" min="0.1" max="10" step="0.1"></label>
           <label>Search for trades every <input type="number" data-k="tradeEveryDays" min="1" max="82"> game days (searching is slow, so raise this if sims feel sluggish)</label>
-          <label>Trade cooldown <input type="number" data-k="tradeCooldownDays" min="0" max="200"> game days before a newly acquired player can be traded again (deals scoring 3× the minimum are allowed anyway)</label>
         </div>
       </div>
     </div>
@@ -119,8 +118,30 @@
         <label>Step size during the season <select data-k="apStep"><option value="day">One day (best decisions)</option><option value="week">One week (faster)</option></select></label>
         <label>Seasons to play <input type="number" data-k="apSeasons" min="1" max="100"></label>
         <label>Moves that need your OK <select data-k="apAutoApprove"><option value="true">Autopilot makes them (fully automatic; Never trade still respected)</option><option value="false">Pause and wait for me</option></select></label>
+        <label class="row"><input type="checkbox" data-k="apAutoNewTeam"> Auto-pick a new team when fired (takes over the strongest team BBGM offers and keeps playing)</label>
+        <label class="row"><input type="checkbox" data-k="apAutoReadMessages"> Auto-read owner messages ("Annual performance evaluation" and others) so they don't pile up</label>
         <label>Also stop at <select data-k="apStopAt"><option value="never">Never</option><option value="playoffs">Playoffs</option><option value="draft">Draft</option><option value="freeAgency">Free agency</option></select></label>
       </div>
+    </div>
+
+    <div class="feat">
+      <label class="sw"><input type="checkbox" data-k="allowOverCap"> <b>Go over the cap when needed</b></label>
+      <p class="hint">Re-signings (and clearly valuable signings) may take you over the salary cap where BBGM allows it: re-signing your own players and minimum contracts under a soft cap. A hard cap is never broken.</p>
+    </div>
+
+    <div class="feat">
+      <label class="sw"><input type="checkbox" data-k="features.office"> <b>Office</b></label>
+      <p class="hint">Job security (BBGM's owner mood), upcoming decisions, re-signing risk, watchlist alerts, franchise objectives and compact mode.</p>
+    </div>
+
+    <div class="feat">
+      <label class="sw"><input type="checkbox" data-k="features.insights"> <b>Insights</b></label>
+      <p class="hint">Lineup synergy, playoff matchup scout, draft class strength, rival GM tendencies, franchise legacy, prediction accuracy, strategy benchmark and a health check.</p>
+    </div>
+
+    <div class="feat">
+      <label class="sw"><input type="checkbox" data-k="commandBar"> <b>Command bar (Alt+K)</b></label>
+      <p class="hint">Jump to any tab or BBGM page, or run Autopilot, trade searches and the health check by typing.</p>
     </div>
 
     <div class="feat">

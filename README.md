@@ -27,6 +27,10 @@ A browser extension for Basketball GM: player development outlooks, a hidden-gem
 
 The dock in the bottom corner of every BBGM league page has one tab per tool. Click its header (or ▼ Close / ▲ Open) to collapse or expand it. The ◐ button switches between Auto, Light and Dark mode; the popup has the same button.
 
+- **Move it anywhere:** press and drag the ball logo / "Courtside" name. It remembers the spot (and works while Autopilot is simming). Double-click the logo to put it back in the corner.
+- **Command bar (Alt+K):** type to jump to any tab or BBGM page, or to run Autopilot, a trade search, a re-plan or the health check.
+- **Compact mode** (Office tab): a mini panel with the three metrics you pick (team rating rank, record, job security, cap space, strategy, next decision).
+
 **Hover cards** (on by default): hover over any player's name anywhere in BBGM to see their outlook, hidden-gem verdict, value to your team, contract or asking price, draft rank, playing time and injury.
 
 | Tab | What it does | Default |
@@ -37,7 +41,9 @@ The dock in the bottom corner of every BBGM league page has one tab per tool. Cl
 | **Targets** | Players on other teams worth adding. "Ask" runs BBGM's "What would make this work?" and grades the answer | On |
 | **FA** | Free agents ranked by value for the money (forecast value minus asking salary), with Sign buttons and the reason when you can't sign someone | On |
 | **Draft** | Draft board ranked by the Scout model next to BBGM's own ranking, grouped into **tiers** of prospects whose forecasts overlap. **Trade-down advice** when your tier is deep: it asks teams picking later what they'd add, and suggests a deal only if a same-tier prospect should still be there. Auto Drafter can suggest or make your pick, and can trade up or down automatically | Off |
-| **Manager** | Auto Team Management and Autopilot (below), plus an activity log with Undo | Off |
+| **Manager** | Auto Team Management and Autopilot (below). A **live Autopilot section** (seasons completed of your target, current season and record, season results, latest moves, time per season), an **action queue** (tick suggested moves and run them together; each is re-checked first), and a **timeline** of everything it did, filterable by trades, signings, draft, seasons, strategy and problems, with Undo | Off |
+| **Office** | **Job security** (BBGM's own owner-mood formula: wins, playoffs, money; projected for this season; firing line at −1), **coming up** (trade deadline, expiring contracts, draft, re-signing, free agency, roster limits), **re-signing risk** (each expiring player's chance of re-signing, from BBGM's mood), **watchlist alerts** for pinned players (breakout, decline, traded, free agent, injury, expiring), **franchise objectives** and compact mode | On |
+| **Insights** | **Lineup synergy** (BBGM's on-court skill bonus for your five vs the best-fitting five), **playoff matchup scout** (your opponent's strengths and weaknesses, or the top threats), **draft class strength** (vs past classes in this league), **rival GM tendencies** (buyers, sellers, pick hoarders, cap-strapped), **franchise legacy** (players you drafted or who played for you, awards, where they are now), **prediction accuracy** (Courtside's forecasts graded a season later), **strategy benchmark** and a **health check** | On |
 | **Needs** | **Injury stress test** (what your team rating and skill ranks lose if your best players, top rim protector or ball handler miss time, with affordable backups) plus the team needs scanner: your three biggest weaknesses compared with every team (outside shooting, inside scoring, ball handling & passing, perimeter defense, rim protection, rebounding, athleticism, bench depth, star power), each linked to the best trade target, free agent and draft prospect to fix it, with Ask / Sign buttons | On |
 | **Plan** | The next three seasons: projected team rating and league rank, committed payroll, cap space, expiring contracts and your picks, with warnings (stars declining before prospects are ready, a closing window, a cap crunch, no first-rounders). Also where you set **Never trade / Ask first / Available** for every player and pick | On |
 | **Moneyball** | Value per dollar, in BBGM's team rating: payroll efficiency for every team, your roster by value per dollar (overpaid / bargain), the best value-per-dollar players available, **market inefficiencies** (skills, ages and builds BBGM's AI under- or over-values), age arbitrage (buy before the peak, sell before the decline), and cheaper swaps that make you better | On |
@@ -47,6 +53,10 @@ The dock in the bottom corner of every BBGM league page has one tab per tool. Cl
 - **Auto** looks at your team rating now and projected in two seasons (league percentiles), your record once enough games are played, the age of your top five, your first-round picks, young players projected to start, and next season's cap room.
 - It re-decides only at three checkpoints a season (start, mid-season around the trade deadline, offseason). It needs a clear margin to switch, so a hot or cold streak doesn't flip the plan. Each switch is logged with its reasons, and the decision syncs with your settings.
 - Pick a strategy yourself to override Auto. (The old "Balanced" setting becomes Develop.)
+- **Real title shot (v3.0).** Auto goes Win Now only within about 2.5 team-rating points (~7 wins) of the best team; otherwise a strong team stays on Contend.
+- **Job on the line (v3.0).** If the owner's mood projects a firing, Auto won't choose a multi-season rebuild.
+- **Franchise objectives (v3.0, Office tab):** win a title by a season (Auto goes all-in as the deadline nears, or says it's out of reach), stay under the luxury tax, never trade first-round picks, draft for a future star (prospects ranked by ceiling). Trades, signings and re-signings that break them are ruled out.
+- **Difficulty-aware (v2.7.1).** Every strategy adjusts to the league's BBGM difficulty. On Hard and Insane the trade AI asks more and players are less willing to sign with you, so young players, picks and long-term value you own count more. Contend and Win Now accept smaller real gains, because good trades are rarer, and Auto needs a stronger roster before it contends. Easy is the reverse. The strategy's reasons say how difficulty changed the plan.
 
 **Team rating and trades.** Trades are judged with BBGM's own team-rating formula: predicted margin of victory from your top 10 OVRs, where 1 point is about 2.7 wins over 82 games. Each trade gets one score for the active strategy, combining:
 - team rating now and in each of the next two seasons
@@ -56,24 +66,29 @@ The dock in the bottom corner of every BBGM league page has one tab per tool. Cl
 - young talent given up (heavily penalized when rebuilding)
 - expected decline of players 30 and older (priced in for Win Now)
 - roster limits
+- **fit (v3.0):** how the deal changes your weakest areas compared with the league (shooting, rim protection, playmaking and so on), your best five's skill synergy and, when you're close to the top, your best player. Recomputed every game day; worth at most ±0.6 points, and it counts more the more the strategy is about now. Each move's "Why" names the weakness it fixes.
 
-The manager only makes a trade that clears your minimum improvement and the strategy's own checks, and that BBGM's trade AI actually accepts. Because each trade has to strictly improve the team, it can't churn back and forth.
+The manager only makes a trade that clears your minimum improvement and the strategy's own checks, and that BBGM's trade AI actually accepts. Before the deadline it also shops core players who are unlikely to re-sign (BBGM's own willingness estimate), so they don't leave for nothing, and it shops this year's picks harder in a weak draft class.
 
-**Move memory.** Newly acquired players aren't traded again for a cooldown (default 30 game days), unless a deal scores at least 3× your minimum. A player is never sent straight back to the team he came from, a player you just traded away isn't reacquired, and rejected deals aren't retried during the cooldown. Moves that fail three times are paused for a while. Never trade is never overridden.
+**Move memory.** A deal BBGM rejected isn't proposed again for 10 game days, and the same players (with only the picks changed) aren't retried after two rejections, unless the gain is big. Moves that fail three times are paused for a while. Never trade is never overridden. (The trade cooldown on newly acquired players was removed in v3.0.)
+
+**Challenge modes.** BBGM's challenge modes are respected: no trades with "No trades", only minimum contracts with "No free agents".
 
 **Auto Team Management.** Each part has its own switch. Choose "Suggest" (you approve each move) or "Fully automatic".
 - **Finances:** budget style (win now, balanced or profit) and auto ticket price.
 - **Lineup:** keeps the roster auto-sorted.
-- **Playing time:** gives more minutes to your best players when contending, and to young high-upside players when rebuilding. Gives fewer minutes to the end of the bench, and benches injured players and anyone below the rotation. Optional tanking. In BBGM, minutes don't affect progression, but they do affect player mood.
-- **Re-signing:** re-signs players worth their asking price, plus young players (25 and under) projected to start unless they're clearly overpriced, so you don't lose them for nothing. Lets the rest walk. In hard-cap leagues it lets players walk first, then re-signs best value first while each one still fits under the cap.
+- **Playing time:** gives more minutes to your best players when contending, and to young high-upside players when rebuilding. Gives fewer minutes to the end of the bench, and benches injured players and anyone below the rotation. Optional tanking. In BBGM, minutes don't affect progression, but they do affect player mood. **Playoff mode (v3.0):** in the playoffs the rotation tightens to 8, stars play more whatever the strategy, and there are no development minutes or tanking.
+- **Re-signing (smarter in v3.0):** it doesn't re-sign everyone. It keeps players worth their asking price, and young players (25 and under) projected to start unless clearly overpriced. It lets walk anyone projected outside next season's rotation (bench depth is cheap), anyone a cheaper free agent at least as good can replace, and deals that break the three-season payroll plan or the luxury-tax objective. **Contract length is chosen for you,** since BBGM asks the same salary for any length: long deals for rising young players, 2–3 years in the prime, 1 year for veterans 31+ (and for anyone 27+ while rebuilding). In hard-cap leagues it lets players walk first, then re-signs best value first while each one still fits under the cap.
+- **Go over the cap when needed (v3.0, on by default):** under a soft cap, BBGM lets you exceed the cap to re-sign your own players and to sign minimum contracts. The payroll plan then doesn't block a positive-value re-signing while contending (or a clearly valuable one at any time). A hard cap is never broken.
 - **Roster cuts:** when the roster is over the limit, releases the players worth least to you. Released salary is still owed in BBGM, so salary isn't a reason to cut, and young players' long-run value counts unless you're going for Win Now.
-- **Free agents:** signs players to fill the roster, within the cap and a **three-season payroll plan**. The plan covers contracts already signed, room to re-sign young players projected to start, and rookie deals for your first-round picks, measured against your league's hard cap or luxury-tax line (from the league settings, not hard-coded defaults).
+- **Free agents:** ranked by value plus fit (v3.0). Signs players to fill the roster, within the cap and a **three-season payroll plan**. The plan covers contracts already signed, room to re-sign young players projected to start, and rookie deals for your first-round picks, measured against your league's hard cap or luxury-tax line (from the league settings, not hard-coded defaults).
 - **Trades:** as described above.
 - **Every move is explained.** Expand "Why" on a suggestion or log entry to see the reason, the measurable benefits and costs, the strategy it served, and whether the numbers were projected at the time.
 
 **Risk preference.** Conservative, Balanced or Upside, separate from the team timeline (Auto: reliable when contending, upside when rebuilding). Two players with the same expected value can carry very different risk. Conservative weights each player's 10th-percentile outcome, Upside their 90th. It affects trades, free agents, targets, the draft board and the manager.
 
-**Protected assets and contract rules.** Mark any player or pick as *Never trade* or *Ask first* (Plan tab, or the Outlook card for your own players). Protections are synced per league.
+**Protected assets and contract rules.** Mark any player or pick as *Never trade*, *Ask first* or *Big return only* (Plan tab, or the Outlook card for your own players). Protections are synced per league.
+- *Big return only (v3.0):* tradable only in a deal that scores at least 3× your minimum improvement and adds long-term value. It doesn't affect re-signing or cuts.
 - *Never trade:* no automated feature will trade, cut or let that asset walk, and the Trade Helper never shops it or offers it.
 - *Ask first:* automated features may propose a move involving it, but it always waits for your approval, even in fully automatic mode and in Autopilot.
 
@@ -86,6 +101,8 @@ You can also set the longest contract the manager may give and how much cap spac
   - It votes on league expansion (yes) and team relocation (no); the league still decides by vote.
   - Before an expansion draft it protects your players: Never trade first, then Ask first, then the most valuable for your strategy, up to the league's limit. Then it runs the expansion draft, and fantasy drafts too.
   - Any other BBGM dialog is left for you, and the Manager tab says so.
+- **Auto-pick a new team when fired (v2.7.1, off by default):** when BBGM fires you, Autopilot takes over the strongest team on BBGM's New Team list (the five worst records, or any team in God Mode), judged by team rating now and in two seasons, and keeps playing. Off: Autopilot stops so you can choose.
+- **Auto-read owner messages (v2.7.1, on by default):** opens unread inbox messages, like the owner's "Annual performance evaluation", during and after the run, so you don't have to click through them before BBGM lets you play again. If BBGM doesn't open them, Autopilot keeps going and logs it.
 - **Safeguards:** before each move it checks that BBGM is idle and still at the game state the plan was made for, so a stale plan is never acted on. The same move is never repeated at the same game state, even after a re-render or retry. Stop takes effect between moves, never in the middle of one. It stops itself if the game doesn't advance or the manager keeps going in circles.
 - **Run summary:** when a run ends, the Manager tab shows championships, playoff appearances, regular-season win %, salary spent per win (with the league average for context), trades and other moves, draft picks, strategy changes, roster turnover, and a season-by-season table. These are observed results from BBGM's records. The summary doesn't claim Autopilot caused them; there's no comparison against what would have happened otherwise.
 

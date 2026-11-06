@@ -69,8 +69,11 @@
       try { sched = (await bbgm.idb.cache.schedule.getAll()).length; } catch (e) {}
       let negs = 0;
       try { negs = (await bbgm.idb.cache.negotiations.getAll()).filter((n) => n.tid === userTid).length; } catch (e) {}
+      // Unread inbox messages (e.g. the owner's "Annual performance evaluation"); BBGM's Play menu waits on these.
+      let unread = [];
+      try { unread = (await bbgm.idb.cache.messages.getAll()).filter((m) => !m.read).map((m) => m.mid).sort((a, b) => a - b); } catch (e) {}
       const ed = opt("expansionDraft") || {};
-      out = { inLeague: true, userTid, season, phase, gp, onClock, userHasPick, round, prog, sched, daysLeft: opt("daysLeft"), negs,
+      out = { inLeague: true, userTid, season, phase, gp, won: t.won || 0, lost: (t.lost || 0) + (t.otl || 0), onClock, userHasPick, round, prog, sched, daysLeft: opt("daysLeft"), negs, unread,
         exp: ed.phase || null, autoExpand: !!opt("autoExpand"), autoRelocate: !!opt("autoRelocate"), relocRealign: opt("autoRelocateRealign") !== false,
         relocRebrand: opt("autoRelocateRebrand") !== false, gameOver: !!opt("gameOver"),
         gameSim: !!bbgm.lock.get("gameSim"), drafting: !!bbgm.lock.get("drafting"),
@@ -82,7 +85,7 @@
     const g = bbgm.g, idb = bbgm.idb, RK = ${RATINGS};
     const userTid = g.get("userTid"), season = g.get("season"), phase = g.get("phase");
     const ga = {};
-    for (const k of ["salaryCap","minPayroll","luxuryPayroll","luxuryTax","minContract","maxContract","maxContractLength","maxRosterSize","minRosterSize","salaryCapType","numGames","budget","godMode","realPlayerDeterminism","numActiveTeams","draftType","inflationAvg","inflationStd","softCapTradeSalaryMatch","aiTradesFactor","injuryRate","threePointTendencyFactor","pace"]) {
+    for (const k of ["salaryCap","minPayroll","luxuryPayroll","luxuryTax","minContract","maxContract","maxContractLength","maxRosterSize","minRosterSize","salaryCapType","numGames","budget","godMode","realPlayerDeterminism","numActiveTeams","draftType","inflationAvg","inflationStd","softCapTradeSalaryMatch","aiTradesFactor","injuryRate","threePointTendencyFactor","pace","difficulty","tradeDeadline","gracePeriodEnd","minContractLength","challengeNoTrades","challengeNoFreeAgents","challengeNoDraftPicks","challengeNoRatings","challengeFiredLuxuryTax","challengeFiredMissPlayoffs","challengeLoseBestPlayer","numGamesPlayoffSeries","numPlayoffByes"]) {
       try { ga[k] = g.get(k); } catch (e) {}
     }
     try { ga.userTids = g.get("userTids"); } catch (e) { ga.userTids = [userTid]; }
@@ -119,8 +122,12 @@
     fas.sort((a, b) => (b[0].valueFuzz ?? b[0].value) - (a[0].valueFuzz ?? a[0].value));
     // Contract demands for the top 80 free agents, and always for everyone you're negotiating with
     // (otherwise a low-value expiring player is never decided and BBGM asks before free agency).
-    for (const [p, row] of fas.filter(([q], i) => i < 80 || negPids.has(q.pid))) {
-      try { const m = await bbgm.player.moodInfo(p, userTid); row.mood = { willing: !!m.willing, contractAmount: m.contractAmount }; } catch (e) {}
+    // ...and for your own players whose contracts end this season or next (re-sign risk alerts).
+    const expSoon = all.filter((p) => p.tid === userTid && p.contract && p.contract.exp <= season + 1 && !negPids.has(p.pid));
+    const rowOf = new Map(players.map((r) => [r.pid, r]));
+    for (const [p, row] of [...fas.filter(([q], i) => i < 80 || negPids.has(q.pid)), ...expSoon.map((p) => [p, rowOf.get(p.pid)])]) {
+      if (!row) continue;
+      try { const m = await bbgm.player.moodInfo(p, userTid); row.mood = { willing: !!m.willing, contractAmount: m.contractAmount, probWilling: typeof m.probWilling === "number" ? m.probWilling : null, traits: m.traits || [] }; } catch (e) {}
     }
     const draftPicks = (await idb.cache.draftPicks.getAll()).map((d) => ({ dpid: d.dpid, tid: d.tid, originalTid: d.originalTid, season: d.season, round: d.round, pick: d.pick }));
     let order = [];
@@ -146,6 +153,73 @@
       const ps = await bbgm.idb.cache.players.indexGetAll("playersByTid", tid);
       console.log(JSON.stringify({ tid, phase: ed.phase || null, num: Number(ed.numProtectedPlayers) || 0,
         protectedPids: (ed.protectedPids && ed.protectedPids[tid]) || [], expansionTids: ed.expansionTids || [], pids: ps.map((p) => p.pid) }));`, 15000),
+    /**
+     * Teams you can take over after being fired (read-only). Mirrors BBGM's New Team page: your old team is
+     * excluded and, unless God Mode is on, only the five teams with the worst record this season are offered.
+     */
+    newTeamOptions: () => evalJSON(`
+      const g = bbgm.g, season = g.get("season"), userTid = g.get("userTid");
+      let godMode = false; try { godMode = !!g.get("godMode"); } catch (e) {}
+      const teams = (await bbgm.idb.cache.teams.getAll()).filter((t) => !t.disabled && t.tid !== userTid);
+      const rows = [];
+      for (const t of teams) {
+        const ts = (await bbgm.idb.cache.teamSeasons.indexGetAll("teamSeasonsByTidSeason", [[t.tid, season], [t.tid, season]]))[0] || {};
+        const gp = (ts.won || 0) + (ts.lost || 0) + (ts.tied || 0) + (ts.otl || 0);
+        rows.push({ tid: t.tid, region: t.region, name: t.name, abbrev: t.abbrev, won: ts.won || 0, lost: ts.lost || 0,
+          winp: gp ? ((ts.won || 0) + 0.5 * (ts.tied || 0)) / gp : 0.5 });
+      }
+      rows.sort((a, b) => a.winp - b.winp);
+      console.log(JSON.stringify({ godMode, userTid, teams: godMode ? rows : rows.slice(0, 5) }));`, 30000),
+    /** Owner mood history for your team plus what's needed to project this season (read-only). */
+    ownerInfo: () => evalJSON(`
+      const g = bbgm.g, tid = g.get("userTid"), season = g.get("season");
+      const opt = (k) => { try { return g.get(k); } catch (e) { return undefined; } };
+      const amt = (x) => (typeof x === "number" ? x : (x && x.amount) || 0);
+      const sum = (o) => (o ? Object.values(o).reduce((s, r) => s + amt(r), 0) : 0);
+      const rows = (await bbgm.idb.cache.teamSeasons.indexGetAll("teamSeasonsByTidSeason", [[tid, 0], [tid, 9999]]))
+        .map((r) => ({ season: r.season, ownerMood: r.ownerMood || null, won: r.won || 0, lost: r.lost || 0, tied: r.tied || 0, otl: r.otl || 0,
+          prw: r.playoffRoundsWon ?? -1, profit: (sum(r.revenues) - sum(r.expenses)) / 1000 }));
+      let rounds = 4; try { rounds = (g.get("numGamesPlayoffSeries", "current") || []).length; } catch (e) {}
+      console.log(JSON.stringify({ tid, season, phase: g.get("phase"), rows, rounds, gracePeriodEnd: opt("gracePeriodEnd"), godMode: !!opt("godMode"),
+        budget: opt("budget") !== false, numGames: opt("numGames") || 82, salaryCap: opt("salaryCap") || 90000,
+        challengeFiredLuxuryTax: !!opt("challengeFiredLuxuryTax"), challengeFiredMissPlayoffs: !!opt("challengeFiredMissPlayoffs") }));`, 30000),
+    /** The current playoff bracket round (read-only). */
+    playoffInfo: () => evalJSON(`
+      const season = bbgm.g.get("season");
+      const ps = await bbgm.idb.cache.playoffSeries.get(season);
+      const side = (x) => (x ? { tid: x.tid, seed: x.seed, won: x.won || 0 } : null);
+      console.log(JSON.stringify(ps ? { currentRound: ps.currentRound, series: (ps.series[ps.currentRound] || []).map((m) => ({ home: side(m.home), away: side(m.away) })) } : { currentRound: null, series: [] }));`, 15000),
+    /** Trades between teams over the last two seasons (read-only), for rival tendencies. */
+    tradeEvents: () => evalJSON(`
+      const season = bbgm.g.get("season");
+      let ev = []; try { ev = await bbgm.idb.cache.events.getAll(); } catch (e) {}
+      console.log(JSON.stringify({ events: ev.filter((e) => e.type === "trade" && e.season >= season - 2).map((e) => ({ season: e.season, tids: e.tids || [], pids: e.pids || [] })).slice(-400) }));`, 30000),
+    /** Franchise history: players drafted by or who played for your team, active and retired (read-only). */
+    legacy: () => evalJSON(`
+      const g = bbgm.g, tid = g.get("userTid");
+      let ps = [];
+      try { ps = await bbgm.idb.getCopies.players({ activeAndRetired: true }); } catch (e) { ps = await bbgm.idb.cache.players.getAll(); }
+      const out = [];
+      for (const p of ps) {
+        const st = (p.stats || []).filter((s) => !s.playoffs);
+        const ours = st.filter((s) => s.tid === tid);
+        const drafted = p.draft && p.draft.tid === tid;
+        if (!drafted && ours.reduce((t, s) => t + (s.gp || 0), 0) < 41) continue;
+        const sum = (rows, k) => rows.reduce((t, s) => t + (s[k] || 0), 0);
+        const aw = {}; for (const a of p.awards || []) if (a && a.type) aw[a.type] = (aw[a.type] || 0) + 1;
+        const ovrs = (p.ratings || []).map((r) => r.ovr);
+        out.push({ pid: p.pid, name: p.firstName + " " + p.lastName, tid: p.tid, retired: p.tid === bbgm.PLAYER.RETIRED, hof: !!p.hof,
+          draft: p.draft ? { year: p.draft.year, round: p.draft.round, pick: p.draft.pick, tid: p.draft.tid } : null, drafted,
+          seasonsWithUs: new Set(ours.map((s) => s.season)).size, gpUs: sum(ours, "gp"), ptsUs: sum(ours, "pts"), gp: sum(st, "gp"), pts: sum(st, "pts"),
+          peak: ovrs.length ? Math.max(...ovrs) : null, awards: aw });
+      }
+      out.sort((a, b) => (Object.values(b.awards).reduce((s, x) => s + x, 0) * 500 + b.pts) - (Object.values(a.awards).reduce((s, x) => s + x, 0) * 500 + a.pts));
+      console.log(JSON.stringify({ tid, players: out.slice(0, 40) }));`, 180000),
+    /** Health check: which allow-listed BBGM actions exist in this version of the game (read-only). */
+    capabilities: (names) => evalJSON(`
+      const api = bbgm.api || {}, want = ${JSON.stringify(names || [])}, have = {};
+      for (const n of want) { const [cat, fn] = n.split("."); have[n] = !!(api[cat] && typeof api[cat][fn] === "function"); }
+      console.log(JSON.stringify({ have, version: (globalThis.bbgmVersion || null) }));`, 15000),
     readTrade: () => evalJSON(`const tr = await bbgm.idb.cache.trade.get(0); console.log(JSON.stringify({ teams: tr ? tr.teams : null }));`, 15000),
     /** Every active team's season records from `from` to `to` (read-only), for the Autopilot summary. */
     history: (from, to) => evalJSON(`

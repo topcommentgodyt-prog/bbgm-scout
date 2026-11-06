@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Courtside",
-  "version": "2.7.0",
+  "version": "3.0.0",
   "description": "The all-in-one GM toolkit for Basketball GM: scouting, OVR predictions, trades, contracts, draft, team management and Autopilot.",
   "permissions": [
     "storage"
@@ -56,6 +56,7 @@
         "src/features.js",
         "src/realism.js",
         "src/planning.js",
+        "src/insights.js",
         "src/moneyball.js",
         "src/content.js"
       ],

@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.1.1
+
+- **Fixed:** in 3.1.0 the header's green "Synced" dot stretched into a long bar. The new layout rule for the sync label also matched the dot, because the dot carries the class `sync` too. It's a 7px dot again. Checked on the live BBGM site.
+- Chrome Web Store screenshots and listing text added under `docs/store/`.
+
 ## 3.1.0
 
 ### New

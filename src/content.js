@@ -374,11 +374,13 @@
      and Open / Close is always the last thing visible. */
   header button, header .grip, header b { flex:none; white-space:nowrap; }
   header .caret { margin-left:auto; }
-  header .sync { flex:1 1 auto; min-width:0; justify-content:flex-end; overflow:hidden; }
-  header .sync .stxt { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  /* "header > .sync": the status dot itself can also carry the class "sync" (its mode), so match the container only */
+  header > .sync { flex:1 1 auto; min-width:0; justify-content:flex-end; overflow:hidden; }
+  header > .sync .stxt { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  header .dot { flex:none; }
   .wrap.compact header .stxt, .wrap.ap header .stxt { display:none; } /* tight header: the dot (with its tooltip) is enough */
   .wrap.compact header .apchip { padding:1px 6px; }
-  .wrap.compact header { gap:6px; padding:9px 10px; } .wrap.compact header .sync { display:none; }
+  .wrap.compact header { gap:6px; padding:9px 10px; } .wrap.compact header > .sync { display:none; }
   header .grip { display:flex; align-items:center; gap:8px; cursor:grab; touch-action:none; padding:2px 4px 2px 0; border-radius:8px; }
   header .grip:hover { background:rgba(255,255,255,.1); }
   .wrap.moving { transition:none; opacity:.92; box-shadow:0 24px 50px -10px rgba(0,0,0,.45); } .wrap.moving header .grip { cursor:grabbing; }

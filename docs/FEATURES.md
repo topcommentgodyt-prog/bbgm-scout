@@ -180,7 +180,7 @@ Built from the live snapshot.
 
 ## 10. Manager tab: Auto Team Management
 
-**Dashboard (v2.4).** The tab opens with Strategy (Auto + the four strategies, showing Auto's current pick and its reasons), Seasons (1–100), approvals waiting, and Run/Stop. Advanced settings are collapsed underneath: manager mode, Autopilot step, stop-at checkpoint, minimum trade improvement, trade cooldown, and how often to search for trades. Expandable sections (Advanced settings, the strategy's reasons, "Why" and the run summary) stay open or closed as you left them, and the panel keeps its scroll position while you change settings (v2.4.2).
+**Dashboard (v2.4).** The tab opens with Strategy (Auto + the four strategies, showing Auto's current pick and its reasons), Seasons (1–100), approvals waiting, and Run/Stop. Advanced settings are collapsed underneath: manager mode, Autopilot step, stop-at checkpoint, the Autopilot switches, and (since v3.3) a read-only view of the automatic trade bar and next trade search. Expandable sections (Advanced settings, the strategy's reasons, "Why" and the run summary) stay open or closed as you left them, and the panel keeps its scroll position while you change settings (v2.4.2).
 
 Choose a mode: **Suggest** (a list of proposed moves, each with Do it / Skip, plus "Do all") or **Fully automatic** (runs after every game day and phase change). Each area has its own switch:
 

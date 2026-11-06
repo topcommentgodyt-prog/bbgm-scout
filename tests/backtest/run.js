@@ -60,7 +60,7 @@ async function runOne({ label, src, scenario, seed, seasons }) {
   const LG = ctx.BBGMScoutLeague, F = ctx.BBGMScoutFeatures, S = ctx.BBGMScoutStorage;
   const base = await S.getSettings();
   const settings = { ...base, features: { ...base.features, manager: true, autopilot: true, drafter: true }, managerMode: "auto", teamMode: "auto",
-    apStep: "week", apSeasons: seasons, tradeEveryDays: 7, manage: { ...base.manage, resign: true, releases: true, signings: true } };
+    apStep: "week", apSeasons: seasons, manage: { ...base.manage, resign: true, releases: true, signings: true } };
   await S.saveSettings(settings);
   const t0 = Date.now();
   const m = { actions: 0, failed: 0, skipped: 0, stalls: 0, stoppedEarly: null, strategies: {}, kinds: {} };

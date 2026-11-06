@@ -169,7 +169,7 @@
     return { score: base - youthPen - pickPen - agePen - fitPen, base, youthPen, pickPen, agePen, fitPen };
   }
 
-  /** Whether a scored trade clears the bar for the strategy. min = settings.tradeMinMov. */
+  /** Whether a scored trade clears the bar for the strategy. min = features.js tradeBar (automatic since v3.3). */
   function tradeOk(strat, im, min, prof = NORMAL) {
     // Contend / Win Now take smaller real gains when good trades are rare (harder difficulty); everyone is
     // pickier on Easy. Rebuild and Develop keep your bar: their protection comes from valuing youth and picks more.

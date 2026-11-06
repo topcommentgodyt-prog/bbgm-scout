@@ -1,5 +1,20 @@
 # Changelog
 
+## 3.3.0
+
+The "Minimum trade improvement" and "Search for trades every N game days" settings are replaced by automatic logic. The Manager tab's Advanced settings show the current values and the reasons.
+
+- **Automatic trade bar.** The minimum improvement a trade must score is no longer one fixed number:
+  - It depends on the strategy: Win Now 0.35, Contend 0.45, Develop 0.6, Rebuild 0.7.
+  - It's lower in the last 5 games before the deadline (last chance) and for a contender within 1.5 points of the best team (every point counts).
+  - It's higher after each recent trade, so the roster isn't reshuffled constantly; there's no player cooldown any more.
+  - It's kept between 0.25 (the forecasts' error margin) and 1.5.
+- **Smarter trade searches.**
+  - **Instead of a fixed interval:** it searches as soon as something changes (roster, phase, strategy), and every game day in deadline week. Otherwise it searches every 2–7 game days depending on the strategy, slowing down when searches keep finding nothing.
+  - **Paused while closed:** no searches while trades are closed (after the deadline, the playoffs, "No trades" challenge).
+  - **Result:** less waiting during long sims, and quicker reactions when something happens.
+- Checked on the live BBGM site through a deadline, the playoffs and an offseason: searches every step in deadline week, paused during the playoffs, resumed on roster changes, and a real trade cleared the bar. 43 unit tests pass (2 new).
+
 ## 3.2.1
 
 - **Fixed: the dock could stay on screen with the master switch off.** When the extension is updated or reloaded, Chrome leaves the old copy of Courtside running in tabs that are already open, cut off from the extension, so it never hears the switch. Now the old copy shuts itself down as soon as it's cut off, or when the new copy starts on the same page, so there's only ever one dock and the switch always works.

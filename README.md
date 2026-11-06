@@ -70,7 +70,11 @@ The dock in the bottom corner of every BBGM league page has one tab per tool. Cl
 - roster limits
 - **fit (v3.0):** how the deal changes your weakest areas compared with the league (shooting, rim protection, playmaking and so on), your best five's skill synergy and, when you're close to the top, your best player. Recomputed every game day; worth at most ±0.6 points, and it counts more the more the strategy is about now. Each move's "Why" names the weakness it fixes.
 
-The manager only makes a trade that clears your minimum improvement and the strategy's own checks, and that BBGM's trade AI actually accepts. Before the deadline it also shops core players who are unlikely to re-sign (BBGM's own willingness estimate), so they don't leave for nothing, and it shops this year's picks harder in a weak draft class.
+The manager only makes a trade that clears the automatic trade bar (below) and the strategy's own checks, and that BBGM's trade AI actually accepts. Before the deadline it also shops core players who are unlikely to re-sign (BBGM's own willingness estimate), so they don't leave for nothing, and it shops this year's picks harder in a weak draft class.
+
+**Automatic trade bar and search timing (v3.3).** These replace the old "Minimum trade improvement" and "Search for trades every N game days" settings; the Manager tab's Advanced settings show the current values and why.
+- *Trade bar* (the minimum improvement a trade must score): Win Now 0.35, Contend 0.45, Develop 0.6, Rebuild 0.7 team-rating points. It's 25% lower in the last 5 games before the deadline, 20% lower for a contender within 1.5 points of the best team, and 25% higher for each trade made in the last 30 game days, so the roster isn't reshuffled constantly. It stays between 0.25 (about the forecasts' error margin) and 1.5. Difficulty adjusts it further.
+- *Search timing:* it searches at once when the roster changes (a trade, signing, release, or a long injury to a top-8 player), and at each new phase or strategy change. In the last week before the deadline it searches every game day. Otherwise it searches every 2 (Win Now), 3 (Contend), 5 (Develop) or 7 (Rebuild) game days, slowing down to at most every 14 after searches that found nothing. It pauses while trades are closed (after the deadline, the playoffs, "No trades" challenge).
 
 **Move memory.** A deal BBGM rejected isn't proposed again for 10 game days, and the same players (with only the picks changed) aren't retried after two rejections, unless the gain is big. Moves that fail three times are paused for a while. Never trade is never overridden. (The trade cooldown on newly acquired players was removed in v3.0.)
 
@@ -91,7 +95,7 @@ The manager only makes a trade that clears your minimum improvement and the stra
 **Risk preference.** Conservative, Balanced or Upside, separate from the team timeline (Auto: reliable when contending, upside when rebuilding). Two players with the same expected value can carry very different risk. Conservative weights each player's 10th-percentile outcome, Upside their 90th. It affects trades, free agents, targets, the draft board and the manager.
 
 **Protected assets and contract rules.** Mark any player or pick as *Never trade*, *Ask first* or *Big return only* (Plan tab, or the Outlook card for your own players). Protections are synced per league.
-- *Big return only (v3.0):* tradable only in a deal that scores at least 3× your minimum improvement and adds long-term value. It doesn't affect re-signing or cuts.
+- *Big return only (v3.0):* tradable only in a deal that scores at least 3× the trade bar and adds long-term value. It doesn't affect re-signing or cuts.
 - *Never trade:* no automated feature will trade, cut or let that asset walk, and the Trade Helper never shops it or offers it.
 - *Ask first:* automated features may propose a move involving it, but it always waits for your approval, even in fully automatic mode and in Autopilot.
 
@@ -109,7 +113,7 @@ You can also set the longest contract the manager may give and how much cap spac
 - **Safeguards:** before each move it checks that BBGM is idle and still at the game state the plan was made for, so a stale plan is never acted on. The same move is never repeated at the same game state, even after a re-render or retry. Stop takes effect between moves, never in the middle of one. It stops itself if the game doesn't advance or the manager keeps going in circles.
 - **Run summary:** when a run ends, the Manager tab shows championships, playoff appearances, regular-season win %, salary spent per win (with the league average for context), trades and other moves, draft picks, strategy changes, roster turnover, and a season-by-season table. These are observed results from BBGM's records. The summary doesn't claim Autopilot caused them; there's no comparison against what would have happened otherwise.
 
-The Manager tab opens with a compact dashboard (Strategy, Seasons, approvals waiting, Run/Stop). Advanced settings are collapsed underneath: manager mode, step size, checkpoint, minimum trade improvement, trade cooldown, and how often to search for trades.
+The Manager tab opens with a compact dashboard (Strategy, Seasons, approvals waiting, Run/Stop). Advanced settings are collapsed underneath: manager mode, step size, checkpoint, the Autopilot switches, and a read-only view of the automatic trade bar and the next trade search (with the reasons).
 
 **How actions happen.** A small script in the BBGM page calls the same internal functions BBGM's own buttons use (`bbgm.toWorker`). Only an allow-listed set of actions is possible. The game enforces its rules (cap, roster limits, trade deadline, player willingness) and records undo entries. Read-only league snapshots go through BBGM's official worker-console mechanism. Nothing writes to the league database directly.
 

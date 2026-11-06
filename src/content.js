@@ -513,6 +513,9 @@
   .adv { display:grid; grid-template-columns:1fr; gap:7px; margin-top:7px; } .adv label { display:flex; justify-content:space-between; gap:8px; align-items:center; font-size:12px; }
   .adv input[type=number] { width:64px; }
   .adv label.row { justify-content:flex-start; } .adv label.row input { margin:0; }
+  .tradeauto { border-top:1px dashed var(--line); padding-top:6px; display:grid; gap:3px; }
+  .tradeauto .ta-row { display:flex; justify-content:space-between; align-items:baseline; gap:8px; font-size:12px; }
+  .tradeauto .ta-row b { font-variant-numeric:tabular-nums; text-align:right; } .tradeauto .ta-row small { font-weight:600; }
   .ex { font-size:11px; color:var(--mut); margin:2px 0 4px; } .ex b { color:var(--fg); font-weight:700; } .ex ul { margin:2px 0 0 14px; padding:0; }
   .sum td, .sum th { font-size:11.5px; }
   select.prot.never { border-color:var(--bad); } select.prot.ask { border-color:var(--warn); }
@@ -1071,7 +1074,7 @@
       const td = await F.tradeDue(lidNow(), L, settings);
       st.pending = await F.managerPlan(L, settings, { lid: lidNow(), includeTrades: settings.manage.trades && td.due && td });
       st.pendingKey = progressKey(st.poll);
-      if (td.due) td.mark();
+      if (td.due) td.mark(st.pending.filter((a) => a.kind === "trade").length);
     } catch (e) { st.flash = e.message; }
     render();
   }
@@ -1178,8 +1181,7 @@
       ${settings.features.autopilot ? `<label title="Fully automatic: Autopilot also makes moves involving Ask-first players or picks, and moves that break your contract rules. Never-trade players are still never traded, cut or let go.">Moves that need your OK<select data-set="apAutoApprove"><option value="true"${settings.apAutoApprove !== false && settings.apAutoApprove !== "false" ? " selected" : ""}>Autopilot makes them</option><option value="false"${settings.apAutoApprove === false || settings.apAutoApprove === "false" ? " selected" : ""}>Pause for me</option></select></label>
       <label class="row" title="When BBGM fires you, Autopilot takes over the strongest team BBGM offers (the worst records, or any team in God Mode) and keeps playing. Off: Autopilot stops so you can choose."><input type="checkbox" data-set="apAutoNewTeam"${isOn(settings.apAutoNewTeam) ? " checked" : ""}> Auto-pick a new team when fired</label>
       <label class="row" title="Opens unread inbox messages (like the owner's Annual performance evaluation) during and after the run, so you don't have to click through them before BBGM lets you play again."><input type="checkbox" data-set="apAutoReadMessages"${isOn(settings.apAutoReadMessages) ? " checked" : ""}> Auto-read owner messages</label>` : ""}
-      <label title="Minimum trade score in team-rating points (1 point ≈ 2.7 wins over 82 games)">Minimum trade improvement<input type="number" data-set="tradeMinMov" min="0.1" max="10" step="0.1" value="${settings.tradeMinMov ?? 0.5}"></label>
-      <label title="Searching is slow; raise this if sims feel sluggish">Search for trades every N game days<input type="number" data-set="tradeEveryDays" min="1" max="82" value="${settings.tradeEveryDays || 1}"></label>
+      ${tradeAutoHtml()}
     </div></details></div>`;
 
     html += liveHtml();
@@ -1240,6 +1242,32 @@
     strategy: { label: "Strategy", kinds: ["strategy"] },
     error: { label: "Problems", kinds: ["error"] },
   };
+
+  /**
+   * Automatic trade bar and search timing (Manager → Advanced settings; read-only). These replace the old
+   * "Minimum trade improvement" and "Search for trades every N game days" inputs: see features.js tradeBar / tradeDue.
+   */
+  function tradeAutoHtml() {
+    const L = st.L;
+    if (!L) return "";
+    const key = `${st.LKey}:${(st.log[0] || {}).t || 0}`;
+    if (!st.tradeAuto || st.tradeAuto.key !== key) {
+      if (!st.tradeAutoBusy) {
+        st.tradeAutoBusy = true;
+        F.tradeStatus(lidNow(), L, settings).then((s) => { st.tradeAuto = { key, ...s }; }).catch(() => {}).finally(() => { st.tradeAutoBusy = false; render(); });
+      }
+      if (!st.tradeAuto) return "";
+    }
+    const t = st.tradeAuto;
+    const wins = (t.bar.min * ((L.snap.ga && L.snap.ga.numGames) || 82) * 0.033).toFixed(1);
+    const search = t.closed ? `paused: ${t.closed}` : t.due ? `due now (${t.why})` : `in ~${t.nextIn} game day${t.nextIn === 1 ? "" : "s"}`;
+    return `<div class="tradeauto">
+      <div class="ta-row"><span>Minimum trade improvement</span><b>${t.bar.min.toFixed(2)} <small class="mut">auto · ~${wins} wins</small></b></div>
+      <div class="why" style="margin-top:0">${t.bar.why.map(esc).join(" · ")}</div>
+      <div class="ta-row"><span>Next trade search</span><b>${esc(search)}</b></div>
+      <div class="why" style="margin-top:0">Searches at once when the roster, phase or strategy changes, and every game day in the last week before the deadline; otherwise every ${t.interval} game day${t.interval === 1 ? "" : "s"} for this strategy${t.empty ? `, slower after ${t.empty} search${t.empty === 1 ? "" : "es"} that found nothing worth doing` : ""}.</div>
+    </div>`;
+  }
 
   /** Free agency checker (Manager tab): roster vs limits, cap room, best fits, and whether Autopilot keeps shopping. */
   function faCheckHtml() {
@@ -2085,7 +2113,7 @@
           await S.addLog({ kind: "error", text: st.ap.status });
           break;
         }
-        if (td.due) await td.mark();
+        if (td.due) await td.mark(planned.filter((a) => a.kind === "trade").length);
         if (acts.length) {
           // Each action re-checks that BBGM is idle and still at the state the plan was made for;
           // Stop takes effect between actions, never in the middle of one.
@@ -2240,7 +2268,7 @@
         const L = await getL();
         const td = await F.tradeDue(lidNow(), L, settings);
         const acts = await F.managerPlan(L, settings, { lid: lidNow(), includeTrades: settings.manage.trades && td.due && td });
-        if (td.due) await td.mark();
+        if (td.due) await td.mark(acts.filter((a) => a.kind === "trade").length);
         const pk = progressKey(p);
         st.pendingKey = pk;
         if (settings.managerMode === "auto" && acts.length) {

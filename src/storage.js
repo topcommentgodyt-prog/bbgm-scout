@@ -41,8 +41,6 @@
     managerMode: "suggest", // "suggest" (you approve each action) | "auto"
     manage: { finances: true, roster: true, minutes: true, resign: true, signings: true, releases: true, trades: true },
     financeStyle: "balanced", // "win" | "balanced" | "profit"
-    tradeMinMov: 0.5, // minimum team-rating (MOV) improvement for an automatic trade
-    tradeEveryDays: 1,
     maxContractYears: 0, // 0 = no limit
     minCapReserve: 0, // $ millions of cap space to keep free
     rotationSize: 10,

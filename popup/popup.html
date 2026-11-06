@@ -111,8 +111,7 @@
         <label class="row"><input type="checkbox" data-k="manage.trades"> Make trades</label>
         <div data-show="manage.trades">
           <p class="hint">No limit on how many. A trade is made only when it raises your team rating (BBGM's predicted margin of victory): now if you're contending, over the next two seasons if you're rebuilding, both if balanced.</p>
-          <label>Minimum improvement (points of team rating; 1 point ≈ 2.7 wins over 82 games) <input type="number" data-k="tradeMinMov" min="0.1" max="10" step="0.1"></label>
-          <label>Search for trades every <input type="number" data-k="tradeEveryDays" min="1" max="82"> game days (searching is slow, so raise this if sims feel sluggish)</label>
+          <p class="hint">Automatic since v3.3: the minimum improvement adapts to your strategy, the trade deadline, a close title race and how many trades were made recently. Searches run when the roster, phase or strategy changes, daily in deadline week, and otherwise every few game days, slowing down when nothing turns up. The Manager tab's Advanced settings show the current values and why.</p>
         </div>
       </div>
     </div>

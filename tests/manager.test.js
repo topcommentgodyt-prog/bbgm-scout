@@ -96,6 +96,54 @@ test("re-signing: a player whose contract demands weren't read is still decided 
   for (const n of snap.negotiations) assert.ok(decided.has(n), `negotiation ${n} decided`);
 });
 
+test("trade bar (v3.3): adapts to strategy, deadline, title race and churn, within 0.25–1.5", async () => {
+  const { bridge } = createLeague({ seed: 3 });
+  const ctx = load(bridge);
+  const F = ctx.BBGMScoutFeatures;
+  const settings = await ctx.BBGMScoutStorage.getSettings();
+  const L = await ctx.BBGMScoutLeague.build(await bridge.snapshot(), settings, null, {});
+  const at = (key, extra = {}) => {
+    const strat = { ...L.strategy, key, label: key, features: { ...L.strategy.features, titleGap: 5, ...extra.features } };
+    return F.tradeBar({ ...L, strategy: strat, snap: { ...L.snap, ...(extra.snap || {}) }, user: extra.user || L.user }, settings).min;
+  };
+  // Strategy: Win Now takes smaller gains than Rebuild.
+  assert.ok(at("winnow") < at("contend") && at("contend") < at("develop") && at("develop") < at("rebuild"));
+  // A close title race lowers a contender's bar.
+  assert.ok(at("contend", { features: { titleGap: 1 } }) < at("contend"));
+  // Deadline: in the last games before the deadline the bar drops.
+  const games = (L.snap.ga && L.snap.ga.numGames) || 82, dlGame = Math.ceil(games * 0.6);
+  const reg = { snap: { phase: 1, ga: { ...L.snap.ga, tradeDeadline: 0.6, numGames: games } } };
+  const early = at("develop", { ...reg, user: { ...L.user, won: 2, lost: 2, tied: 0, otl: 0 } });
+  const late = at("develop", { ...reg, user: { ...L.user, won: dlGame - 4, lost: 1, tied: 0, otl: 0 } });
+  assert.ok(late < early, `late ${late} < early ${early}`);
+  // Bounds, and the test override still pins it.
+  for (const k of ["winnow", "contend", "develop", "rebuild"]) { const m = at(k); assert.ok(m >= 0.25 && m <= 1.5, `${k} ${m}`); }
+  assert.strictEqual(F.tradeBar(L, { ...settings, tradeMinOverride: 0.1 }).min, 0.1);
+});
+
+test("trade search timing (v3.3): searches on changes, paces itself, backs off after empty searches", async () => {
+  const { bridge } = createLeague({ seed: 3 });
+  const ctx = load(bridge);
+  const F = ctx.BBGMScoutFeatures;
+  const settings = await ctx.BBGMScoutStorage.getSettings();
+  await advanceTo(bridge, 1);
+  const L = await ctx.BBGMScoutLeague.build(await bridge.snapshot(), settings, null, {});
+  const lid = 7;
+  let td = await F.tradeDue(lid, L, settings);
+  assert.ok(td.due, "first search is due");
+  await td.mark(0); // found nothing
+  td = await F.tradeDue(lid, L, settings);
+  assert.ok(!td.due && td.nextIn >= 1, "not due again on the same day");
+  // A roster change makes it due at once.
+  const changed = { ...L, roster: (tid) => L.roster(tid).slice(1) };
+  assert.strictEqual((await F.tradeDue(lid, changed, settings)).why, "roster changed");
+  // After empty searches the interval grows (up to 14 game days).
+  const i1 = td.interval;
+  await td.mark(0);
+  const i2 = (await F.tradeDue(lid, L, settings)).interval;
+  assert.ok(i2 >= i1 && i2 <= 14, `${i1} -> ${i2}`);
+});
+
 test("free agency checker (v3.1): Autopilot shops day by day only while it's worth it", async () => {
   const { bridge } = createLeague({ seed: 2 });
   const ctx = load(bridge);
@@ -153,7 +201,7 @@ test("trades leave room for this round's re-signings and pending draft picks", a
   const ctx = load(bridge);
   const settings = await ctx.BBGMScoutStorage.getSettings();
   const L = await ctx.BBGMScoutLeague.build(await bridge.snapshot(), settings, null, {});
-  const acts = await ctx.BBGMScoutFeatures.managerPlan(L, { ...settings, manage: { ...settings.manage, resign: true, trades: true }, tradeMinMov: 0.1 }, { lid: 1, includeTrades: true });
+  const acts = await ctx.BBGMScoutFeatures.managerPlan(L, { ...settings, manage: { ...settings.manage, resign: true, trades: true }, tradeMinOverride: 0.1 }, { lid: 1, includeTrades: true });
   const resigns = acts.filter((a) => a.kind === "resign").length;
   const trade = acts.find((a) => a.kind === "trade");
   if (trade) {

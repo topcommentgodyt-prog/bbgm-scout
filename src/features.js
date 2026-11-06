@@ -100,7 +100,7 @@
   const clockOf = (L) => SG.gameClock(L.snap.season, L.snap.phase, gpOfTeam(L.user));
   /** Why a trade is blocked by the move memory (recently rejected deals), or null. */
   function memoryBlock(L, mem, teams, score) {
-    return SG.tradeBlocked(mem, teams, clockOf(L), { score, min: L.settings.tradeMinMov ?? 0.5 });
+    return SG.tradeBlocked(mem, teams, clockOf(L), { score, min: minFor(L) });
   }
 
   // ======================= Trade Helper =======================
@@ -157,7 +157,7 @@
         const impact = LG.tradeImpact(L, teams);
         const protect = PR().assetsLevel(o.pidsUser, o.dpidsUser);
         const ruleBreak = PR().contractRuleBreak(L, L.settings, { payrollDelta: PR().tradePayrollDelta(L, teams) });
-        const premiumBlock = protect === "premium" && !PR().premiumOk(impact, L.settings.tradeMinMov ?? 0.5) ? "includes a Big-return-only asset, and the return isn't big enough" : null;
+        const premiumBlock = protect === "premium" && !PR().premiumOk(impact, minFor(L)) ? "includes a Big-return-only asset, and the return isn't big enough" : null;
         ideas.push({ teams, gain: impact.value, impact, rosterAfter, protect, ruleBreak, blocked: memoryBlock(L, mem, teams, impact.score) || objectiveBlocks(L, teams, impact) || premiumBlock, desc: describeTrade(L, teams) });
       }
     }
@@ -202,7 +202,7 @@
       const same = (a, b) => a.pids.length === b.pids.length && a.dpids.length === b.dpids.length && a.pids.every((x) => b.pids.includes(x)) && a.dpids.every((x) => b.dpids.includes(x));
       if (same(t[0], teams[0]) && same(t[1], teams[1])) return null; // nothing changed
       const impact = LG.tradeImpact(L, t);
-      if (lv === "premium" && !PR().premiumOk(impact, settings.tradeMinMov ?? 0.5)) return null;
+      if (lv === "premium" && !PR().premiumOk(impact, minFor(L, settings))) return null;
       if (objectiveBlocks(L, t, impact)) return null;
       const rosterAfter = L.capInfo.rosterSize - t[0].pids.length + t[1].pids.length;
       if (!isNecessary(L, impact, settings) || rosterAfter + signed > L.capInfo.maxRoster) return null;
@@ -235,7 +235,7 @@
     if (im.fitWhy && im.fitWhy.length) benefits.push(`fits how you win: ${im.fitWhy.join("; ")}`);
     if (im.fitHurt && im.fitHurt.length) costs.push(`fit: ${im.fitHurt.join("; ")}`);
     const st = L.strategy || { label: L.mode, goal: "" };
-    return { why: `Fits ${st.label}: ${st.goal}. Score ${sgn(im.score, 2)} (threshold ${(L.settings.tradeMinMov ?? 0.5).toFixed(1)}).`, benefits, costs, strategy: st.label, basis: "projected",
+    return { why: `Fits ${st.label}: ${st.goal}. Score ${sgn(im.score, 2)} (threshold ${minFor(L).toFixed(2)}).`, benefits, costs, strategy: st.label, basis: "projected",
       num: { now: Math.round(im.now * 100) / 100, future: Math.round(im.future * 100) / 100, value: Math.round(im.value), score: Math.round(im.score * 100) / 100 } };
   }
 
@@ -776,7 +776,7 @@
    * Each accepted trade must strictly improve the team, so the manager can't churn back and forth.
    */
   function isNecessary(L, im, settings) {
-    const min = settings.tradeMinMov ?? 0.5;
+    const min = minFor(L, settings);
     const key = (L.strategy && L.strategy.key) || (L.mode === "contend" ? "contend" : L.mode === "rebuild" ? "rebuild" : "develop");
     return SG.tradeOk(key, im, min, L.difficulty);
   }
@@ -827,14 +827,97 @@
   /** Call after building a league model so failure memory uses the game clock. */
   function noteClock(L) { lastClock = clockOf(L); }
 
-  /** Should the manager look for trades now? Trades are slow to search, so they're rate-limited. */
+  // ======================= Automatic trade bar and search timing (v3.3) =======================
+  // These replace the old "Minimum trade improvement" and "Search for trades every N game days" settings.
+
+  /** Games left before the trade deadline (regular season only), or null. */
+  function gamesToDeadline(L) {
+    const ga = L.snap.ga || {}, games = ga.numGames || 82;
+    if (L.snap.phase !== PH.REGULAR_SEASON || !(ga.tradeDeadline > 0 && ga.tradeDeadline < 1)) return null;
+    return Math.ceil(games * ga.tradeDeadline) - gpOfTeam(L.user);
+  }
+  /** Trades the manager made in the last 30 game days (each trade counted once). */
+  function recentTrades(L) {
+    const mem = memCache.get(activeLid);
+    if (!mem) return 0;
+    const clock = clockOf(L);
+    return new Set(Object.values(mem.acq || {}).filter((a) => a.from >= 0 && clock - a.t < 30).map((a) => a.t)).size;
+  }
+  /**
+   * The minimum improvement (team-rating points) a trade must score, worked out from the situation instead of a
+   * fixed number:
+   *  - strategy: Win Now takes smaller real gains (help now is the whole point); Rebuild wants more (it's mostly
+   *    judged on value and the future, which are less certain)
+   *  - trade deadline: in the last 5 games before it, the bar drops (last chance this season)
+   *  - title race: a contender within 1.5 points of the best team takes smaller upgrades (every point counts)
+   *  - churn guard: each trade made in the last 30 game days raises it by 25%, so the roster isn't reshuffled
+   *    constantly (there's no player cooldown any more)
+   *  - noise floor: never below 0.25, about the forecast error of a typical swap, and never above 1.5
+   * Difficulty is applied on top of this inside strategy.tradeOk.
+   * Returns { min, why: [reasons] }. `settings.tradeMinOverride` (not in the UI) pins it, for tests.
+   */
+  function tradeBar(L, settings = L.settings) {
+    if (settings && settings.tradeMinOverride != null) return { min: Number(settings.tradeMinOverride), why: ["fixed override"] };
+    const key = (L.strategy && L.strategy.key) || "develop";
+    const BASE = { winnow: 0.35, contend: 0.45, develop: 0.6, rebuild: 0.7 };
+    let min = BASE[key] ?? 0.5;
+    const why = [`${(L.strategy && L.strategy.label) || "Develop"} starts at ${min.toFixed(2)}`];
+    const dl = gamesToDeadline(L);
+    if (dl != null && dl >= 0 && dl <= 5) { min *= 0.75; why.push(`trade deadline in ${dl} game${dl === 1 ? "" : "s"}: last chance this season (−25%)`); }
+    const gap = L.strategy && L.strategy.features ? L.strategy.features.titleGap : null;
+    if ((key === "contend" || key === "winnow") && gap != null && gap <= 1.5) { min *= 0.8; why.push(`${gap <= 0 ? "best team in the league" : `${gap.toFixed(1)} points from the top`}: every point counts (−20%)`); }
+    const n = recentTrades(L);
+    if (n) { min *= 1 + 0.25 * n; why.push(`${n} trade${n === 1 ? "" : "s"} in the last 30 game days: avoiding churn (+${25 * n}%)`); }
+    if (min < 0.25) why.push("held at the 0.25 noise floor");
+    min = Math.round(Math.max(0.25, Math.min(1.5, min)) * 20) / 20;
+    return { min, why };
+  }
+  const minFor = (L, settings) => tradeBar(L, settings || L.settings).min;
+
+  /**
+   * Should the manager search for trades now? Searching is slow (every AI team builds an offer), so instead of
+   * a fixed "every N game days" it searches when something changed and paces itself otherwise:
+   *  - right away: a new phase or season, a changed roster (a trade, signing, release, or a long injury among
+   *    the top 8), or a changed strategy
+   *  - every game day in the final week before the trade deadline
+   *  - otherwise every 2 (Win Now) / 3 (Contend) / 5 (Develop) / 7 (Rebuild) game days, doubling (up to 4×,
+   *    at most 14 days) after searches that found nothing worth doing
+   * Returns { due, why, nextIn, mark(found) }; call mark with the number of trades worth making it found.
+   */
   async function tradeDue(lid, L, settings) {
     const key = `lastTradeScan:${lid}`;
     const last = (await S.localGet(key)) || {};
-    const now = { season: L.snap.season, phase: L.snap.phase, gp: L.user ? L.user.won + L.user.lost + (L.user.tied || 0) + (L.user.otl || 0) : 0 };
-    // Searching is slow (every AI team builds an offer), so it runs every N game days and once per phase.
-    const due = last.season !== now.season || last.phase !== now.phase || now.gp - (last.gp || 0) >= (settings.tradeEveryDays || 1);
-    return { due, mark: () => S.localSet(key, now) };
+    const mine = L.roster(L.snap.userTid);
+    const top8 = new Set(mine.map((p) => L.byPid.get(p.pid)).filter(Boolean).sort((a, b) => b.summary.ovr - a.summary.ovr).slice(0, 8).map((v) => v.p.pid));
+    const sig = mine.map((p) => `${p.pid}${top8.has(p.pid) && p.injury && p.injury.gamesRemaining > 10 ? "i" : ""}`).sort().join(",");
+    const strat = (L.strategy && L.strategy.key) || "develop";
+    const now = { season: L.snap.season, phase: L.snap.phase, gp: gpOfTeam(L.user), sig, strat };
+    const EVERY = { winnow: 2, contend: 3, develop: 5, rebuild: 7 };
+    // Trades closed (after the deadline, the playoffs, drafts, or BBGM's "No trades" challenge): nothing to search.
+    if (!tradesAllowed(L) || challenge(L, "challengeNoTrades")) {
+      const closed = challenge(L, "challengeNoTrades") ? "trades are off in this challenge mode" : L.snap.phase >= PH.AFTER_TRADE_DEADLINE && L.snap.phase <= PH.PLAYOFFS ? "trades reopen after the playoffs" : "trades are closed in this phase";
+      return { due: false, why: null, nextIn: null, closed, interval: EVERY[strat] || 5, empty: last.empty || 0, mark: async () => {} };
+    }
+    const dl = gamesToDeadline(L);
+    const backoff = Math.min(4, 2 ** Math.min(2, last.empty || 0));
+    const interval = dl != null && dl >= 0 && dl <= 7 ? 1 : Math.min(14, (EVERY[strat] || 5) * backoff);
+    let why = null;
+    if (last.season !== now.season || last.phase !== now.phase) why = "new phase";
+    else if (last.sig !== now.sig) why = "roster changed";
+    else if (last.strat !== now.strat) why = "strategy changed";
+    else if (now.gp - (last.gp || 0) >= interval) why = interval === 1 ? "trade deadline week" : `${interval} game days since the last search`;
+    const nextIn = why ? 0 : Math.max(1, interval - (now.gp - (last.gp || 0)));
+    return {
+      due: !!why, why, nextIn, interval, empty: last.empty || 0,
+      mark: (found = 0) => S.localSet(key, { ...now, empty: found > 0 ? 0 : (last.season === now.season ? (last.empty || 0) + 1 : 1) }),
+    };
+  }
+  /** What the Manager tab shows about trade searching (read-only; no async). */
+  async function tradeStatus(lid, L, settings) {
+    setLeague(lid);
+    await loadMem(); // the churn guard counts recent trades from the move memory
+    const td = await tradeDue(lid, L, settings);
+    return { bar: tradeBar(L, settings), due: td.due, why: td.why, nextIn: td.nextIn, interval: td.interval, empty: td.empty, closed: td.closed || null };
   }
 
   // ======================= Autopilot =======================
@@ -870,7 +953,7 @@
 
   root.BBGMScoutFeatures = {
     gemVerdict, gemList, tradeIdeas, proposeTrade, evaluateCurrentTrade, targets, buildOfferFor, freeAgents, sign,
-    draftBoard, tierCounts, tradeDownIdeas, draftStep, managerPlan, freeAgencyCheck, runActions, tradeDue, isNecessary, impactText, minutesPlan, nextPlayAction, stopHere, tradesAllowed, PT, fmtMoney,
+    draftBoard, tierCounts, tradeDownIdeas, draftStep, managerPlan, freeAgencyCheck, runActions, tradeDue, tradeBar, tradeStatus, isNecessary, impactText, minutesPlan, nextPlayAction, stopHere, tradesAllowed, PT, fmtMoney,
     explainTrade, payrollPlan, fitsPlan, setLeague, loadMem, saveMem, memoryBlock, clockOf, noteClock, objectiveBlocks,
   };
 })(globalThis);

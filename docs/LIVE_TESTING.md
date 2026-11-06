@@ -28,7 +28,7 @@ For each step, mark ✅ / ❌ and note what happened.
 - [ ] Manager dashboard: Strategy shows **Auto (…)** with a strategy name; expanding it lists the reasons (team rating percentiles, core age, picks, cap room). Does the pick match your team?
 - [ ] Expand **Why** on a few suggestions: each shows a reason, benefits and costs, the strategy, and "projected".
 - [ ] Switch Strategy to **Rebuild**, then **Win Now**: the Trades and Targets headers change, and the suggested trades change. Set it back to **Auto**.
-- [ ] **Advanced settings** is collapsed by default and opens; changing Minimum trade improvement or the two checkboxes (auto-pick a new team, auto-read owner messages) sticks after a page reload.
+- [ ] **Advanced settings** is collapsed by default and opens; the trade bar and next-search lines show values with reasons, and the two checkboxes (auto-pick a new team, auto-read owner messages) sticks after a page reload.
 
 ## C. One action at a time
 
